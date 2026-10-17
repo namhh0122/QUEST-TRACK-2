@@ -57,6 +57,65 @@
     box-shadow: inset 0 0 120px rgba(0,0,0,.85);
   }
   .wall.side { filter: brightness(.72); }
+
+  /* ---------- 2번 감방: 이끼 낀 지하 물감옥 ---------- */
+  body.room-2 .wall {
+    background-color: #343c34;
+    background-image:
+      radial-gradient(ellipse at 20% 90%, rgba(70,120,60,.45), transparent 45%),
+      radial-gradient(ellipse at 80% 100%, rgba(60,110,70,.4), transparent 40%),
+      radial-gradient(ellipse at 50% 10%, rgba(140,190,220,.10), transparent 60%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='110'%3E%3Crect width='180' height='110' fill='%2316191a'/%3E%3Crect x='4' y='4' width='96' height='48' rx='10' fill='%233a4239'/%3E%3Crect x='106' y='4' width='70' height='48' rx='10' fill='%2333392f'/%3E%3Crect x='4' y='58' width='54' height='48' rx='10' fill='%2330372f'/%3E%3Crect x='64' y='58' width='112' height='48' rx='10' fill='%23394137'/%3E%3C/svg%3E");
+  }
+  body.room-2 .floor {
+    background-color: #1c2324;
+    background-image:
+      radial-gradient(ellipse at 40% 60%, rgba(120,170,200,.22), transparent 30%),
+      radial-gradient(ellipse at 70% 30%, rgba(120,170,200,.16), transparent 22%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Crect width='140' height='140' fill='%23202829'/%3E%3Cpath d='M0 2H140M2 0V140M70 70H140M70 0V70' stroke='%230e1213' stroke-width='4'/%3E%3C/svg%3E");
+  }
+  body.room-2 .ceiling { background: #121615; }
+  body.room-2 .window { background: radial-gradient(circle at 30% 35%, #e6f4ff 0 16px, rgba(200,230,255,.3) 18px, transparent 46px), linear-gradient(#06121a, #0f2a36); }
+  body.room-2 .door { border-color: #3d4a44; filter: hue-rotate(60deg) saturate(.6); }
+  body.room-2 .bulb-art .glass {
+    background: radial-gradient(circle at 50% 40%, #f4fbff, #9fd4f0 45%, #4a87a8);
+    box-shadow: 0 0 30px 12px rgba(140,200,240,.5), 0 0 90px 40px rgba(120,190,230,.16);
+  }
+  body.room-2 .light {
+    background:
+      radial-gradient(ellipse 55% 50% at 40% 30%, rgba(120,190,230,.12), transparent 70%),
+      radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0,8,12,.8) 100%);
+  }
+
+  /* ---------- 3번 감방: 붉은 벽돌 독방 ---------- */
+  body.room-3 .wall {
+    background-color: #5a2a20;
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(255,60,40,.14), transparent 60%),
+      radial-gradient(circle at 70% 80%, rgba(0,0,0,.35), transparent 50%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='40'%3E%3Crect width='80' height='40' fill='%23221310'/%3E%3Crect x='2' y='2' width='76' height='16' fill='%236b3326'/%3E%3Crect x='-38' y='22' width='76' height='16' fill='%235e2c21'/%3E%3Crect x='42' y='22' width='76' height='16' fill='%23733829'/%3E%3C/svg%3E");
+  }
+  body.room-3 .floor {
+    background-color: #1e1a19;
+    background-image:
+      radial-gradient(ellipse at 50% 40%, rgba(255,80,60,.12), transparent 55%),
+      repeating-conic-gradient(#2a2523 0 25%, #1b1817 0 50%);
+    background-size: auto, 120px 120px;
+  }
+  body.room-3 .ceiling { background: #170e0c; }
+  body.room-3 .window { background: radial-gradient(circle at 60% 70%, #ffb46a 0 20px, rgba(255,140,80,.35) 22px, transparent 55px), linear-gradient(#2a0d10, #6a2a1e); }
+  body.room-3 .bulb-art .glass {
+    background: radial-gradient(circle at 50% 40%, #ffe9e0, #ff6a4a 45%, #a3221a);
+    box-shadow: 0 0 30px 12px rgba(255,80,60,.55), 0 0 90px 40px rgba(255,60,40,.18);
+    animation: alarm 2.4s infinite;
+  }
+  body.room-3 .light {
+    background:
+      radial-gradient(ellipse 55% 50% at 55% 30%, rgba(255,70,50,.14), transparent 70%),
+      radial-gradient(ellipse at 50% 50%, transparent 42%, rgba(10,0,0,.8) 100%);
+    animation: alarm 2.4s infinite;
+  }
+  @keyframes alarm { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
   .floor {
     background-color: #2b2925;
     background-image:
@@ -398,10 +457,17 @@
 <script>
 /* ===================== 문제 목록 (주어진 목록 그대로) ===================== */
 const PARTS = [
-  { id: 1, cell: '1번<br>감방', name: 'Part 1 · Git · GitHub · Pages' },
-  { id: 2, cell: '2번<br>감방', name: 'Part 2 · AI 를 이해하는 말' },
-  { id: 3, cell: '3번<br>감방', name: 'Part 3 · 찾아서 고치는 부탁' },
+  { id: 1, cell: '1번<br>감방', name: 'Part 1 · Git · GitHub · Pages', look: '돌벽 감방' },
+  { id: 2, cell: '2번<br>감방', name: 'Part 2 · AI 를 이해하는 말', look: '이끼 낀 지하 물감옥' },
+  { id: 3, cell: '3번<br>감방', name: 'Part 3 · 찾아서 고치는 부탁', look: '붉은 벽돌 독방' },
 ];
+
+/* 감방마다 가구 자리: [x, y, z, 돌린 각도] */
+const LAYOUTS = {
+  1: { bed: [-340, 0, -40, 0],   toilet: [395, 0, -140, -90], book: [-130, 0, 230, 0], tray: [190, 0, 210, 0],  bulb: [0, -260, 60, 0] },
+  2: { bed: [-200, 0, -250, 90], toilet: [-395, 0, 120, 90],  book: [200, 0, -60, 0],  tray: [-120, 0, 230, 0], bulb: [-150, -260, -40, 0] },
+  3: { bed: [340, 0, 120, 0],    toilet: [395, 0, -140, -90], book: [-300, 0, -200, 0], tray: [-150, 0, 180, 0], bulb: [60, -260, 100, 0] },
+};
 
 const QUESTIONS = [
   // ---------- Part 1 ----------
@@ -808,11 +874,22 @@ function startPart(partId) {
     cells.appendChild(c);
   }
 
-  $('where').textContent = state.part.name.replace(/^Part (\d)/, '$1번 감방');
+  applyLook(partId);
+  $('where').textContent = state.part.name.replace(/^Part (\d)/, '$1번 감방') + ' · ' + state.part.look;
   $('totalCount').textContent = PER_ESCAPE;
   ['hudTop', 'hint', 'hudLock'].forEach((id) => ($(id).hidden = false));
   closeOverlay();
   refresh();
+}
+
+/* 감방마다 벽 색 · 빛 · 가구 자리를 바꾼다 */
+function applyLook(partId) {
+  document.body.classList.remove('room-1', 'room-2', 'room-3');
+  document.body.classList.add('room-' + partId);
+  Object.entries(LAYOUTS[partId]).forEach(([key, [x, y, z, r]]) => {
+    objEls[key].host.style.transform = `translate3d(${x}px,${y}px,${z}px) rotateY(${r}deg)`;
+    objEls[key].badge.style.transform = `translate(-50%, 0) rotateY(${-r}deg)`;   // 표시는 늘 앞을 보게
+  });
 }
 
 function refresh() {
@@ -1136,7 +1213,7 @@ function showStart() {
           const n = QUESTIONS.filter((q) => q.part === p.id).length;
           return `<button class="part-btn" data-part="${p.id}">
             <span class="cellno">${p.cell}</span>
-            <span><div class="t">${esc(p.name)}</div><div class="d">문제 ${n}개 중 무작위 ${PER_ESCAPE}개 · 자물쇠 숫자 ${PER_ESCAPE}개</div></span>
+            <span><div class="t">${esc(p.name)}</div><div class="d">${esc(p.look)} · 문제 ${n}개 중 무작위 ${PER_ESCAPE}개 · 자물쇠 숫자 ${PER_ESCAPE}개</div></span>
           </button>`;
         }).join('')}
       </div>
