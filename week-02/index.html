@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>감옥 탈출 용어 퀴즈</title>
+<style>
+  :root {
+    --gold: #e8b64a;
+    --gold-dim: #8a6a27;
+    --rust: #8b4a2b;
+    --ok: #5fc27a;
+    --bad: #e05a4f;
+    --ink: #e9e2d0;
+    --ink-dim: #a39a86;
+    --panel: #1b1916;
+    --panel-2: #26231f;
+    --line: #3d3830;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #0b0a09;
+    color: var(--ink);
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* ---------- 3D 감방 ---------- */
+  .scene {
+    position: fixed; inset: 0;
+    perspective: 1100px;
+    perspective-origin: 50% 38%;
+    overflow: hidden;
+    touch-action: none;
+  }
+  .room {
+    position: absolute; left: 50%; top: 46%;
+    width: 0; height: 0;
+    transform-style: preserve-3d;
+    transform: scale3d(var(--s,1), var(--s,1), var(--s,1)) rotateX(var(--rx,-6deg)) rotateY(var(--ry,0deg));
+    transition: transform .25s ease-out;
+  }
+  .face, .bf {
+    position: absolute; left: 0; top: 0;
+    transform-style: preserve-3d;
+    backface-visibility: hidden;
+  }
+  .wall {
+    background-color: #46413a;
+    background-image:
+      radial-gradient(ellipse at 30% 20%, rgba(255,220,150,.10), transparent 60%),
+      radial-gradient(circle at 70% 80%, rgba(0,0,0,.35), transparent 50%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='60'%3E%3Crect width='120' height='60' fill='%23484239'/%3E%3Crect x='3' y='3' width='54' height='25' fill='%234f483e'/%3E%3Crect x='63' y='33' width='54' height='25' fill='%23423c34'/%3E%3Cpath d='M0 1.5H120M0 31.5H120M60 0V30M1.5 30V60M118.5 30V60' stroke='%231c1a16' stroke-width='3'/%3E%3C/svg%3E");
+    box-shadow: inset 0 0 120px rgba(0,0,0,.85);
+  }
+  .wall.side { filter: brightness(.72); }
+  .floor {
+    background-color: #2b2925;
+    background-image:
+      radial-gradient(ellipse at 50% 40%, rgba(255,210,140,.14), transparent 55%),
+      radial-gradient(circle at 20% 70%, rgba(60,40,20,.5), transparent 18%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%232d2a25'/%3E%3Cpath d='M0 1H100M1 0V100' stroke='%23181613' stroke-width='3'/%3E%3C/svg%3E");
+    box-shadow: inset 0 0 160px rgba(0,0,0,.9);
+  }
+  .ceiling {
+    background: #1a1815;
+    box-shadow: inset 0 0 140px rgba(0,0,0,.95);
+  }
+
+  /* 창문 */
+  .window {
+    position: absolute; left: 170px; top: 80px; width: 210px; height: 150px;
+    background: radial-gradient(circle at 72% 30%, #f5f0d8 0 14px, rgba(245,240,216,.25) 16px, transparent 40px),
+                linear-gradient(#0d1a2e, #1d3050);
+    border: 10px solid #2a2622;
+    box-shadow: inset 0 0 30px rgba(0,0,0,.7), 0 0 0 4px #15130f;
+    cursor: pointer;
+  }
+  .window::after {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(90deg, transparent 0 22px, #4a4740 22px 30px, #26241f 30px 32px);
+  }
+  .window .crossbar {
+    position: absolute; left: 0; right: 0; top: 50%; height: 8px; margin-top: -4px;
+    background: linear-gradient(#5a564d, #26241f); z-index: 1;
+  }
+
+  /* 문 */
+  .doorway {
+    position: absolute; left: 610px; top: 140px; width: 200px; height: 380px;
+    background: linear-gradient(#050505, #0c0b0a);
+    box-shadow: 0 0 0 12px #24211c, 0 0 0 16px #120f0c;
+    transform-style: preserve-3d;
+    overflow: visible;
+  }
+  .doorway .glow {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 60%, #fff6d6, #f0c060 40%, rgba(240,192,96,0) 75%);
+    opacity: 0; transition: opacity 1.2s ease 0.5s;
+  }
+  .doorway.open .glow { opacity: 1; }
+  .door {
+    position: absolute; inset: 0;
+    transform-origin: 0 50%;
+    transform-style: preserve-3d;
+    transition: transform 1.8s cubic-bezier(.5,.05,.3,1) .4s;
+    cursor: pointer;
+    background:
+      linear-gradient(transparent 0 46%, #514b42 46% 52%, transparent 52%),
+      linear-gradient(transparent 0 8%, #514b42 8% 13%, transparent 13% 87%, #514b42 87% 92%, transparent 92%),
+      repeating-linear-gradient(90deg, #3e3a33 0 6px, #6a645a 6px 10px, #3e3a33 10px 14px, transparent 14px 34px);
+    border: 8px solid #4a453d;
+    box-shadow: inset 0 0 20px rgba(0,0,0,.6);
+  }
+  .doorway.open .door { transform: rotateY(-105deg); }
+  .padlock {
+    position: absolute; right: 10px; top: 48%; width: 44px; height: 40px;
+    background: linear-gradient(#c8962f, #7d5a17);
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.6);
+    transition: transform .9s cubic-bezier(.5,0,.8,.4), opacity .9s;
+  }
+  .padlock::before {
+    content: ""; position: absolute; left: 9px; top: -20px; width: 26px; height: 26px;
+    border: 5px solid #9a9a9a; border-bottom: none; border-radius: 14px 14px 0 0;
+    transition: transform .3s;
+  }
+  .padlock::after {
+    content: ""; position: absolute; left: 18px; top: 13px; width: 8px; height: 14px;
+    background: #2a1d07; border-radius: 4px 4px 2px 2px;
+  }
+  .padlock.unlocked::before { transform: translateY(-8px); }
+  .padlock.drop { transform: translateY(240px) rotate(70deg); opacity: 0; }
+  .door.rattle { animation: rattle .5s; }
+  @keyframes rattle {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-5px); } 40% { transform: translateX(5px); }
+    60% { transform: translateX(-4px); } 80% { transform: translateX(3px); }
+  }
+
+  /* 벽의 낙서, 쇠사슬 */
+  .tally { position: absolute; left: 330px; top: 110px; width: 230px; height: 120px; cursor: pointer; }
+  .chain { position: absolute; left: 230px; top: 120px; width: 120px; height: 260px; cursor: pointer; }
+  .tally svg, .chain svg { width: 100%; height: 100%; display: block; overflow: visible; }
+
+  /* 상자 물건 */
+  .box { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+  .clue { cursor: pointer; }
+  .clue:hover .bf, .clue:hover > svg, .window.clue:hover { filter: brightness(1.35); }
+  .bulb-art { position: absolute; left: -20px; top: 0; width: 40px; pointer-events: auto; }
+  .bulb-art .wire { width: 2px; height: 70px; margin: 0 auto; background: #111; }
+  .bulb-art .cap { width: 18px; height: 12px; margin: 0 auto; background: #555; border-radius: 2px; }
+  .bulb-art .glass {
+    width: 30px; height: 36px; margin: 0 auto; border-radius: 50% 50% 45% 45%;
+    background: radial-gradient(circle at 50% 40%, #fffbe8, #ffd877 45%, #c48a2a);
+    box-shadow: 0 0 30px 12px rgba(255,200,100,.55), 0 0 90px 40px rgba(255,190,90,.18);
+    animation: flicker 6s infinite;
+  }
+  @keyframes flicker {
+    0%,100%,8%,12%,55%,58% { opacity: 1; }
+    10% { opacity: .55; } 57% { opacity: .7; }
+  }
+
+  /* 단서 표시 */
+  .badge {
+    position: absolute; left: 50%; transform: translate(-50%, 0);
+    white-space: nowrap;
+    padding: 4px 10px; border-radius: 999px;
+    background: rgba(20,17,12,.88); border: 2px solid var(--gold);
+    color: var(--gold); font-size: 17px; font-weight: 700;
+    box-shadow: 0 0 14px rgba(232,182,74,.55);
+    animation: bob 1.6s ease-in-out infinite;
+    pointer-events: auto;
+  }
+  .badge.done { border-color: #5a554b; color: #8d8676; box-shadow: none; animation: none; }
+  .badge.has-bad { border-color: var(--bad); }
+  @keyframes bob { 50% { margin-top: -6px; } }
+
+  /* 빛과 어둠 */
+  .light {
+    position: fixed; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 55% 50% at 50% 30%, rgba(255,200,110,.10), transparent 70%),
+      radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(0,0,0,.75) 100%);
+    animation: flicker 6s infinite;
+  }
+
+  /* ---------- 화면 위 정보 ---------- */
+  .hud-top {
+    position: fixed; left: 0; right: 0; top: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 16px;
+    background: linear-gradient(rgba(0,0,0,.8), transparent);
+    font-size: 14px; z-index: 5;
+  }
+  .hud-top .where { font-weight: 700; color: var(--gold); }
+  .hud-top .stat { color: var(--ink-dim); }
+  .hud-top .stat b { color: var(--ink); }
+  .btn-small {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px;
+  }
+  .hud-lock {
+    position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+    width: min(720px, calc(100% - 32px));
+    background: rgba(22,19,15,.92); border: 2px solid #4a4236; border-radius: 14px;
+    padding: 10px 12px; z-index: 5;
+    box-shadow: 0 6px 30px rgba(0,0,0,.6);
+  }
+  .hud-lock .label { font-size: 13px; color: var(--ink-dim); margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .hud-lock .label b { color: var(--gold); }
+  .cells { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+  .cell {
+    width: 30px; height: 38px; border-radius: 6px;
+    display: grid; place-items: center;
+    background: linear-gradient(#3a352d, #1e1b16);
+    border: 1px solid #5a5244;
+    font-weight: 800; font-size: 18px; color: #6c6455;
+    font-family: Consolas, monospace;
+  }
+  .cell.open { color: #2b1c02; background: linear-gradient(#f6d27a, #c08a22); border-color: #f6d27a; animation: flip .5s; }
+  .cell.bad { color: #fff; background: linear-gradient(#a8443a, #5e211b); border-color: #c85a4f; animation: flip .5s; }
+  @keyframes flip { 0% { transform: rotateX(90deg); } 100% { transform: rotateX(0); } }
+
+  .hint {
+    position: fixed; left: 50%; top: 52px; transform: translateX(-50%);
+    font-size: 13px; color: var(--ink-dim); z-index: 4; text-align: center;
+    width: calc(100% - 32px);
+  }
+
+  .toast {
+    position: fixed; left: 50%; top: 90px; transform: translate(-50%, -10px);
+    background: rgba(20,17,12,.95); border: 1px solid var(--gold-dim); border-radius: 10px;
+    padding: 10px 16px; font-size: 14px; z-index: 30;
+    opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none;
+    max-width: calc(100% - 32px); text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ---------- 창 (문제 · 시작 · 결과) ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 20;
+    background: rgba(5,4,3,.72);
+    display: none; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .overlay.show { display: flex; }
+  .card {
+    width: min(620px, 100%); max-height: calc(100vh - 32px); overflow-y: auto;
+    background:
+      linear-gradient(rgba(255,240,200,.03), transparent 30%),
+      var(--panel);
+    border: 2px solid #4a4236; border-radius: 16px;
+    padding: 22px 20px 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.03);
+    position: relative;
+    animation: pop .25s ease-out;
+  }
+  @keyframes pop { from { transform: scale(.94); opacity: 0; } }
+  .card .close {
+    position: absolute; right: 12px; top: 10px;
+    background: none; border: none; font-size: 22px; color: var(--ink-dim); padding: 4px 8px;
+  }
+  .found { font-size: 13px; color: var(--ink-dim); margin: 0 30px 8px 0; font-style: italic; }
+  .qmeta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .tag { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim); }
+  .tag.num { color: var(--gold); border-color: var(--gold-dim); }
+  .qtext { font-size: 19px; line-height: 1.55; margin: 0 0 16px; font-weight: 600; word-break: keep-all; }
+  .qtext .blank { display: inline-block; min-width: 70px; border-bottom: 2px solid var(--gold); text-align: center; color: var(--gold); }
+
+  .opts { display: grid; gap: 8px; }
+  .opt {
+    text-align: left; padding: 12px 14px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    font-size: 16px; line-height: 1.4; word-break: keep-all;
+    transition: border-color .15s, background .15s;
+  }
+  .opt:hover:not(:disabled) { border-color: var(--gold-dim); background: #2e2a24; }
+  .opt:disabled { cursor: default; }
+  .opt.correct { border-color: var(--ok); background: rgba(95,194,122,.16); }
+  .opt.wrong { border-color: var(--bad); background: rgba(224,90,79,.16); }
+  .opt.picked { border-color: var(--gold); background: rgba(232,182,74,.12); }
+  .ox { grid-template-columns: 1fr 1fr; }
+  .ox .opt { text-align: center; font-size: 40px; font-weight: 800; padding: 18px 0; }
+
+  .slots { display: flex; gap: 6px; align-items: center; justify-content: center; margin: 4px 0 14px; flex-wrap: wrap; }
+  .slot {
+    width: 44px; height: 44px; border-radius: 8px; border: 2px dashed #5a5244;
+    display: grid; place-items: center; font-weight: 800; font-size: 20px; color: var(--gold);
+  }
+  .slot.filled { border-style: solid; border-color: var(--gold-dim); background: rgba(232,182,74,.08); }
+  .arrow { color: var(--ink-dim); }
+  .opt .order-no {
+    display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--gold); color: #1b1305; font-size: 13px; font-weight: 800; margin-right: 6px;
+  }
+  .opt .key { color: var(--gold); font-weight: 800; margin-right: 6px; }
+
+  .desc-list { margin: 0 0 12px; padding: 10px 12px; background: #15130f; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; line-height: 1.7; }
+  .desc-list b { color: var(--gold); margin-right: 4px; }
+  .match-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
+  .match-row:last-child { border-bottom: none; }
+  .match-row .term { flex: 1 1 120px; font-weight: 700; }
+  .match-row .term b { color: var(--gold); margin-right: 4px; }
+  .chips { display: flex; gap: 6px; }
+  .chip {
+    width: 40px; height: 36px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line);
+    font-weight: 700;
+  }
+  .chip.on { background: var(--gold); color: #1b1305; border-color: var(--gold); }
+  .chip:disabled { cursor: default; }
+  .match-row.ok .term { color: var(--ok); }
+  .match-row.no .term { color: var(--bad); }
+
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .btn {
+    flex: 1 1 auto; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel-2); font-size: 16px; font-weight: 700;
+  }
+  .btn.primary { background: linear-gradient(#e8b64a, #b8861f); color: #1b1305; border-color: #f0c766; }
+  .btn:disabled { opacity: .4; cursor: default; }
+
+  .feedback { margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 15px; line-height: 1.6; word-break: keep-all; }
+  .feedback.ok { background: rgba(95,194,122,.12); border: 1px solid var(--ok); }
+  .feedback.no { background: rgba(224,90,79,.12); border: 1px solid var(--bad); }
+  .feedback .head { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
+  .feedback.ok .head { color: var(--ok); }
+  .feedback.no .head { color: var(--bad); }
+  .feedback .ans { color: var(--ink); }
+  .feedback .exp { color: var(--ink-dim); }
+
+  /* 시작 화면 */
+  .start h1 { margin: 0 0 6px; font-size: 28px; color: var(--gold); letter-spacing: 1px; }
+  .start .sub { color: var(--ink-dim); margin: 0 0 18px; line-height: 1.6; font-size: 14px; word-break: keep-all; }
+  .parts { display: grid; gap: 10px; }
+  .part-btn {
+    text-align: left; padding: 14px 16px; border-radius: 12px;
+    background: linear-gradient(90deg, #2b2620, #1f1c18);
+    border: 1px solid #4a4236;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .part-btn:hover { border-color: var(--gold); }
+  .part-btn .cellno {
+    flex: none; width: 52px; height: 52px; border-radius: 10px;
+    display: grid; place-items: center; font-weight: 800; font-size: 13px; text-align: center; line-height: 1.2;
+    background: repeating-linear-gradient(90deg, #3e3a33 0 4px, #1a1815 4px 12px); color: var(--gold);
+    border: 1px solid #5a5244;
+  }
+  .part-btn .t { font-weight: 700; font-size: 16px; }
+  .part-btn .d { font-size: 13px; color: var(--ink-dim); margin-top: 2px; }
+
+  /* 결과 */
+  .result { text-align: center; }
+  .result h2 { margin: 4px 0 8px; font-size: 26px; }
+  .result .big { font-size: 54px; font-weight: 800; color: var(--gold); margin: 6px 0; }
+  .result .msg { color: var(--ink-dim); line-height: 1.6; word-break: keep-all; }
+  .result .wrong-list { margin: 14px 0 0; text-align: left; font-size: 14px; background: #15130f; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; line-height: 1.7; }
+  .result .wrong-list b { color: var(--bad); }
+
+  .flash { position: fixed; inset: 0; pointer-events: none; z-index: 15; opacity: 0; }
+  .flash.red { background: rgba(200,40,30,.35); animation: fl .6s; }
+  .flash.gold { background: rgba(255,220,140,.55); animation: fl 1.6s; }
+  @keyframes fl { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+
+  @media (max-width: 560px) {
+    .hud-top { font-size: 12px; padding: 8px 12px; }
+    .cell { width: 26px; height: 32px; font-size: 15px; }
+    .qtext { font-size: 17px; }
+    .card { padding: 20px 16px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene" id="scene">
+  <div class="room" id="room"></div>
+</div>
+<div class="light"></div>
+<div class="flash" id="flash"></div>
+
+<div class="hud-top" id="hudTop" hidden>
+  <span class="where" id="where"></span>
+  <span class="stat" id="stat"></span>
+  <button class="btn-small" id="exitBtn">나가기</button>
+</div>
+<div class="hint" id="hint" hidden>빛나는 물건을 눌러 단서(문제)를 찾아라. 다 맞히면 철문이 열린다.</div>
+<div class="hud-lock" id="hudLock" hidden>
+  <div class="label"><span>🔒 철문 자물쇠</span><span>열린 숫자 <b id="openCount">0</b> / <span id="totalCount">0</span></span></div>
+  <div class="cells" id="cells"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<div class="overlay" id="overlay"><div class="card" id="card"></div></div>
+
+<script>
+/* ===================== 문제 목록 (주어진 목록 그대로) ===================== */
+const PARTS = [
+  { id: 1, cell: '1번<br>감방', name: 'Part 1 · Git · GitHub · Pages' },
+  { id: 2, cell: '2번<br>감방', name: 'Part 2 · AI 를 이해하는 말' },
+  { id: 3, cell: '3번<br>감방', name: 'Part 3 · 찾아서 고치는 부탁' },
+];
+
+const QUESTIONS = [
+  // ---------- Part 1 ----------
+  { id: 1, part: 1, type: '4지선다', lv: 1, q: '고칠 때마다 저장 지점을 찍어 두는, 파일의 세이브 포인트 같은 프로그램은?',
+    opts: ['Python', 'Orca', 'Git', 'Node.js'], ans: 2,
+    exp: 'Git 은 저장 지점을 찍어 두고, 망가지면 잘 되던 지점으로 돌아가게 해 줍니다.' },
+  { id: 2, part: 1, type: '빈칸', lv: 1, q: 'Git 이 지켜보는 폴더를 (    )(이)라고 합니다.',
+    opts: ['저장소', '휴지통', '바탕화면', '토큰'], ans: 0,
+    exp: '저장소는 영어로 repository, 줄여서 repo 라고 합니다.' },
+  { id: 3, part: 1, type: 'OX', lv: 2, q: '저장소 안에 숨어 있는 .git 폴더가 Git 의 기록장이다.',
+    ans: 'O', exp: '저장 지점(커밋)이 모두 .git 폴더 안에 기록됩니다.' },
+  { id: 4, part: 1, type: '4지선다', lv: 1, q: '바뀐 것을 묶어 저장 지점 하나로 남기는 일은?',
+    opts: ['클론', '풀', '푸시', '커밋'], ans: 3,
+    exp: '"커밋해 줘" 하면 쌓인 변경을 묶어 기록장에 점 하나로 남깁니다.' },
+  { id: 5, part: 1, type: '4지선다', lv: 2, q: '커밋 메시지(이름표)로 가장 좋은 것은?',
+    opts: ['ㅇㅇ', '점수 표시 추가', '1', '수정'], ans: 1,
+    exp: '무엇을 바꿨는지 한 줄로 적어야 나중에 이름표만 보고 그때를 찾습니다.' },
+  { id: 6, part: 1, type: 'OX', lv: 2, q: 'Ctrl+S 로 저장만 해 두어도 예전 모습으로 돌아갈 수 있는 점이 생긴다.',
+    ans: 'X', exp: '저장은 지금 모습으로 덮어쓰기, 돌아갈 점은 커밋해야 남습니다.' },
+  { id: 7, part: 1, type: '4지선다', lv: 2, q: '두 커밋을 비교했을 때 빨간색 − 줄은 무엇일까?',
+    opts: ['들어온 줄', '빠진 줄', '그대로인 줄', '오류가 난 줄'], ans: 1,
+    exp: '빨강 − 는 빠진 줄, 초록 + 는 들어온 줄입니다.' },
+  { id: 8, part: 1, type: '빈칸', lv: 2, q: '두 커밋의 차이, 즉 바뀐 줄을 영어로 (    )(이)라고 합니다.',
+    opts: ['push', 'token', 'repo', 'diff'], ans: 3,
+    exp: 'diff 는 차이(difference)를 줄인 말입니다.' },
+  { id: 9, part: 1, type: '짝 맞히기', lv: 2, q: '용어와 설명을 짝 지어 봅니다.',
+    terms: ['로컬', '원격', 'Git', 'GitHub'],
+    descs: ['인터넷에 있는 저장소', '내 컴퓨터에 있는 저장소', '저장소를 인터넷에 보관해 주는 사이트', '내 컴퓨터에서 바뀐 것을 커밋으로 기록하는 프로그램'],
+    ans: ['나', '가', '라', '다'],
+    exp: 'Git 은 프로그램, GitHub 는 보관소입니다. 같은 저장소가 로컬과 원격 두 곳에 있습니다.' },
+  { id: 10, part: 1, type: '4지선다', lv: 1, q: '내 컴퓨터의 커밋을 GitHub 로 올려 보내는 일은?',
+    opts: ['푸시', '새로 고침', '풀', '커밋'], ans: 0,
+    exp: '푸시는 파일 하나가 아니라 저장 지점 묶음을 올립니다.' },
+  { id: 11, part: 1, type: 'OX', lv: 2, q: '커밋을 하나도 하지 않았어도 푸시하면 바뀐 파일이 GitHub 로 올라간다.',
+    ans: 'X', exp: '푸시는 커밋을 올리는 일이라, 커밋이 없으면 올릴 것도 없습니다.' },
+  { id: 12, part: 1, type: '4지선다', lv: 2, q: 'GitHub 에 있는 저장소를 내 컴퓨터로 처음 통째로 받아 오는 일은?',
+    opts: ['풀', '푸시', '클론', '커밋'], ans: 2,
+    exp: '처음 한 번은 클론, 이미 있으면 풀로 새 커밋만 받습니다.' },
+  { id: 13, part: 1, type: '상황', lv: 3, q: '집 컴퓨터에 이미 저장소가 있다. 학원에서 올린 새 커밋만 받아 오고 싶을 때 하는 부탁은?',
+    opts: ['"다시 푸시해 줘"', '"저장소를 클론해 줘"', '"GitHub 의 새 커밋을 풀 해 줘"', '"지금 상태를 커밋해 줘"'], ans: 2,
+    exp: '이미 저장소가 있으면 통째로 받지 않고 풀로 새 커밋만 받습니다.' },
+  { id: 14, part: 1, type: '4지선다', lv: 1, q: '저장소의 HTML 을 인터넷 주소로 누구나 볼 수 있게 해 주는 무료 전시장은?',
+    opts: ['GitHub Pages', '커밋', '컨텍스트', '토큰'], ans: 0,
+    exp: 'GitHub Pages 는 저장소의 HTML 을 인터넷 주소로 보여 줍니다.' },
+  { id: 15, part: 1, type: '빈칸', lv: 3, q: '주소 my-id.github.io/QUEST-TRACK-2/week-02/ 에서 QUEST-TRACK-2 는 (    ) 이름입니다.',
+    opts: ['GitHub 아이디', '폴더', '모델', '저장소'], ans: 3,
+    exp: 'my-id 는 GitHub 아이디, QUEST-TRACK-2 는 저장소, week-02 는 폴더입니다.' },
+  { id: 16, part: 1, type: '순서', lv: 3, q: '고친 게임을 친구가 주소로 보기까지, 일어나는 순서대로 놓아 봅니다.',
+    items: ['파일 고치기', '푸시', '커밋', '1~2분 뒤 Pages 반영'], ans: 'ACBD',
+    exp: '고치고, 커밋해서 남기고, 푸시로 올리면 Pages 가 1~2분 뒤 새 모습을 보여 줍니다.' },
+  { id: 17, part: 1, type: 'OX', lv: 2, q: '푸시하자마자 새로 고침했는데 옛 모습이 보이면 페이지가 망가진 것이다.',
+    ans: 'X', exp: 'Pages 가 페이지를 다시 만드는 1~2분 동안은 옛 모습이 보입니다. 기다렸다가 F5 를 누릅니다.' },
+  { id: 18, part: 1, type: '4지선다', lv: 3, q: '친구가 내 컴퓨터 안 파일 주소(file:///C:/...)를 입력해도 게임이 열리지 않는 까닭은?',
+    opts: ['커밋 메시지가 짧아서', '친구 컴퓨터에는 그 파일이 없어서', '인터넷이 느려서', '파일 이름이 영어라서'], ans: 1,
+    exp: '그래서 늘 켜져 있는 서버에 두고, 누구나 인터넷 주소로 찾아오게 합니다.' },
+
+  // ---------- Part 2 ----------
+  { id: 19, part: 2, type: '4지선다', lv: 1, q: 'LLM 은 무엇의 줄임말일까?',
+    opts: ['Large Language Model', 'Long Line Maker', 'Local Link Manager', 'Light Learning Machine'], ans: 0,
+    exp: '엄청 많은 글을 읽고(Large) 사람의 말을 다루는(Language) 프로그램(Model)입니다.' },
+  { id: 20, part: 2, type: 'OX', lv: 2, q: 'AI 는 검색처럼 이미 있는 글을 찾아 그대로 보여 준다.',
+    ans: 'X', exp: 'AI 는 새 문장을 한 조각씩 이어 씁니다. 그래서 답이 매번 조금씩 다릅니다.' },
+  { id: 21, part: 2, type: '빈칸', lv: 2, q: 'LLM 은 수많은 글에서 (    ) 말을 가리고 맞혀 보는 연습으로 배웁니다.',
+    opts: ['영어', '다음', '맨 처음', '가장 긴'], ans: 1,
+    exp: '가린 다음 말을 맞혀 보고 정답과 비교하는 연습을 셀 수 없이 반복합니다.' },
+  { id: 22, part: 2, type: '순서', lv: 2, q: 'AI 가 답을 만드는 순서대로 놓아 봅니다.',
+    items: ['그중 그럴듯한 말을 골라 붙인다', '지금까지의 글을 본다', '다음 말 후보를 떠올린다', '답이 끝날 때까지 반복한다'], ans: 'BCAD',
+    exp: '지금까지 글을 보고 후보를 떠올린 뒤, 그럴듯한 말을 골라 붙이기를 반복합니다.' },
+  { id: 23, part: 2, type: '4지선다', lv: 1, q: '모르는 것도 그럴듯하게 지어낸 틀린 말을 무엇이라고 할까?',
+    opts: ['컨텍스트', '커밋', '클론', '할루시네이션'], ans: 3,
+    exp: 'LLM 은 모르는 것도 그럴듯하게 이어 쓸 때가 있습니다.' },
+  { id: 24, part: 2, type: '상황', lv: 3, q: 'AI 가 "퀴즈를 다 만들었습니다" 라고 했다. 할루시네이션을 막으려면?',
+    opts: ['결과를 직접 열어 정답을 확인한다', '같은 부탁을 열 번 보낸다', '바로 /clear 한다', '그냥 믿고 친구에게 보낸다'], ans: 0,
+    exp: '다 됐다는 말만 믿지 않고, 결과를 직접 열어 내 눈으로 확인합니다.' },
+  { id: 25, part: 2, type: '4지선다', lv: 1, q: 'AI 가 글을 읽을 때 잘게 나누는 조각의 이름은?',
+    opts: ['폴더', '픽셀', '토큰', '커밋'], ans: 2,
+    exp: 'AI 는 글을 토큰이라는 조각으로 나누고, 다음 말 맞히기도 한 토큰씩 합니다.' },
+  { id: 26, part: 2, type: 'OX', lv: 2, q: '글자 수와 토큰(조각) 수는 언제나 똑같다.',
+    ans: 'X', exp: '한글은 1~2글자, 영어는 단어나 단어 조각이 한 토큰이라 글자 수와 다릅니다.' },
+  { id: 27, part: 2, type: '4지선다', lv: 3, q: '토큰 수와 관계가 없는 것은?',
+    opts: ['AI 를 쓰는 비용', '답하는 데 걸리는 시간', '내 GitHub 아이디', 'AI 가 한 번에 볼 수 있는 양'], ans: 2,
+    exp: '볼 수 있는 양, 비용, 시간은 모두 토큰으로 셉니다.' },
+  { id: 28, part: 2, type: '빈칸', lv: 1, q: 'AI 가 지금 펼쳐 놓고 보고 있는 책상 전부를 (    )(이)라고 합니다.',
+    opts: ['컨텍스트', '저장소', '모델', 'diff'], ans: 0,
+    exp: '대화, 읽은 파일, CLAUDE.md 가 책상(컨텍스트)에 올라갑니다.' },
+  { id: 29, part: 2, type: '4지선다', lv: 2, q: 'Claude Code 하단 정보줄의 ① 막대가 보여 주는 것은?',
+    opts: ['커밋 개수', '인터넷 속도', '지금 쓰는 모델', '책상(컨텍스트)이 찬 정도'], ans: 3,
+    exp: '① 막대는 컨텍스트, ② 칸은 모델입니다.' },
+  { id: 30, part: 2, type: 'OX', lv: 3, q: '책상이 가득 차면 지난 대화를 지우지 않고 요약본으로 접는다.',
+    ans: 'O', exp: '요약본은 짧아서 세부가 흐려질 수 있습니다.' },
+  { id: 31, part: 2, type: '상황', lv: 2, q: '다른 새 작업을 시작하기 전에 책상을 비우는 명령은?',
+    opts: ['/quiz', '/clear', '/push', '/save'], ans: 1,
+    exp: '/clear 는 새 작업 전에 책상(컨텍스트)을 비웁니다.' },
+  { id: 32, part: 2, type: '4지선다', lv: 3, q: '/clear 를 해도 규칙과 목표가 남아 있는 까닭은?',
+    opts: ['Pages 에 올려 두어서', '매번 다시 읽히는 CLAUDE.md 에 적어 두어서', '커밋을 해 두어서', '토큰이 많아서'], ans: 1,
+    exp: 'CLAUDE.md 는 새 대화의 첫 부탁보다 먼저 다시 읽히는 메모입니다.' },
+  { id: 33, part: 2, type: '짝 맞히기', lv: 2, q: 'Claude 모델 4형제와 설명을 짝 지어 봅니다.',
+    terms: ['Fable', 'Opus', 'Sonnet', 'Haiku'],
+    descs: ['빠르고 균형 잡힌 모델', '가장 빠르고 가벼운 모델', '가장 똑똑하고 가장 비싼 모델', '깊게 생각하는 강한 모델(우리 수업)'],
+    ans: ['다', '라', '가', '나'],
+    exp: '똑똑할수록 느리고 비쌉니다. 우리 수업은 Opus 하나를 씁니다.' },
+  { id: 34, part: 2, type: '4지선다', lv: 1, q: '하단 정보줄 ② 칸에 보이는, 우리 수업에서 쓰는 모델은?',
+    opts: ['Fable', 'Opus', 'Sonnet', 'Haiku'], ans: 1,
+    exp: '수업에서는 Opus 하나를 씁니다.' },
+  { id: 35, part: 2, type: 'OX', lv: 1, q: 'Claude 도 LLM 의 하나다.',
+    ans: 'O', exp: 'Claude 처럼 엄청 많은 글을 읽고 말을 다루는 AI 를 LLM 이라고 부릅니다.' },
+  { id: 36, part: 2, type: '상황', lv: 2, q: 'AI 에게 같은 질문을 다시 했더니 이번엔 다른 이름을 지어 줬다. 왜일까?',
+    opts: ['인터넷이 끊겨서', '커밋을 안 해서', 'AI 가 고장 나서', '다음 말을 매번 새로 골라 이어 쓰기 때문에'], ans: 3,
+    exp: 'AI 는 검색처럼 같은 글을 찾지 않고, 매번 새 문장을 한 조각씩 만듭니다.' },
+
+  // ---------- Part 3 ----------
+  { id: 37, part: 3, type: '4지선다', lv: 1, q: 'Claude Code 에게 "재생 버튼 색만 초록으로 바꿔 줘" 라고 하면?',
+    opts: ['그 부분을 찾아 그 부분만 고친다', '아무것도 하지 않는다', '새 파일을 만든다', '파일 전체를 처음부터 다시 쓴다'], ans: 0,
+    exp: '파일을 직접 열어 읽고, 고칠 줄을 찾아 그 줄만 바꿉니다.' },
+  { id: 38, part: 3, type: '순서', lv: 2, q: 'Claude Code 가 고치는 4단계를 순서대로 놓아 봅니다.',
+    items: ['파일 찾아 읽기', '그 부분만 수정하기', '부탁 이해하기', '고칠 곳 정하기'], ans: 'CADB',
+    exp: '먼저 읽고, 찾고, 그다음 고칩니다.' },
+  { id: 39, part: 3, type: 'OX', lv: 2, q: '파일 전체를 통째로 다시 쓰면 잘 되던 곳까지 바뀔 수 있다.',
+    ans: 'O', exp: 'TRACK 1 에서 재생 버튼만 바꾸려다 볼륨 칸이 사라진 것처럼, 통째로 다시 쓰면 다른 곳도 바뀝니다.' },
+  { id: 40, part: 3, type: '4지선다', lv: 2, q: '그 부분만 고칠 때 좋은 점이 아닌 것은?',
+    opts: ['잘 되던 곳이 망가지지 않는다', '바뀐 줄로 확인할 수 있다', '파일이 저절로 Pages 에 올라간다', '빠르다'], ans: 2,
+    exp: 'Pages 에 올리려면 커밋하고 푸시해야 합니다.' },
+  { id: 41, part: 3, type: '상황', lv: 2, q: '"색 바꿔 줘" 라고만 부탁하면 어떤 일이 생길까?',
+    opts: ['저절로 커밋된다', '파일이 지워진다', '색이 들어간 줄이 많아 AI 가 어디인지 헷갈린다', '정확히 한 줄만 바로 바뀐다'], ans: 2,
+    exp: '모호하면 후보가 많아집니다. 어디를 바꿀지 말해 줍니다.' },
+  { id: 42, part: 3, type: '빈칸', lv: 1, q: '또렷한 부탁에는 어디 · 무엇 · (    )이(가) 들어갑니다.',
+    opts: ['어떻게', '언제', '누가', '왜'], ans: 0,
+    exp: '예: 재생 버튼(어디) 색(무엇)을 초록으로(어떻게).' },
+  { id: 43, part: 3, type: '부탁 고치기', lv: 2, q: '"색 바꿔 줘" 를 바르게 고친 부탁은?',
+    opts: ['"전부 다시 만들어 줘"', '"아무 색이나 바꿔 줘"', '"색 좀 예쁘게 해 줘"', '"재생 버튼 색을 초록으로 바꿔 줘"'], ans: 3,
+    exp: '어디(재생 버튼) · 무엇(색) · 어떻게(초록으로)가 모두 들어 있습니다.' },
+  { id: 44, part: 3, type: '부탁 고치기', lv: 3, q: '"그거 좀 크게 해 줘" 를 바르게 고친 부탁은?',
+    opts: ['"그거 진짜 크게 해 줘"', '"곡 제목 글자 크기를 두 배로 키워 줘"', '"다 크게 해 줘"', '"처음부터 다시 만들어 줘"'], ans: 1,
+    exp: '"그거" 대신 어디를, "크게" 대신 얼마나를 말합니다.' },
+  { id: 45, part: 3, type: '상황', lv: 3, q: 'Claude Code 가 고친 뒤 무엇이 바뀌었는지 확인하려면 어디를 보면 될까?',
+    opts: ['토큰 수', '빨강 · 초록으로 보이는 바뀐 줄', '하단 정보줄 ② 칸', '내 GitHub 아이디'], ans: 1,
+    exp: '빨강 − 는 빠진 줄, 초록 + 는 들어온 줄입니다.' },
+  { id: 46, part: 3, type: '짝 맞히기', lv: 3, q: '평소에 하는 말과, 용어로 바꾼 부탁을 짝 지어 봅니다.',
+    terms: ['이거 남겨 둬', '인터넷에 올려', '다시 가져와', '책상 좀 비워'],
+    descs: ['"week-02 를 푸시해 줘"', '"GitHub 의 새 커밋을 풀 해 줘"', '"week-02 를 커밋해 줘"', '/clear 입력하기'],
+    ans: ['다', '가', '나', '라'],
+    exp: '용어로 말하면 AI 가 되묻지 않고 한 번에 알아듣습니다.' },
+  { id: 47, part: 3, type: 'OX', lv: 1, q: '부탁 끝에 "나머지는 그대로 둬" 를 붙이면 고칠 곳이 아닌 곳은 건드리지 말라는 뜻이 된다.',
+    ans: 'O', exp: '그 부분만 고치라는 뜻이 더 분명해집니다.' },
+  { id: 48, part: 3, type: '빈칸', lv: 2, q: '"재생 버튼 색을 초록으로 바꿔 줘" 에서 재생 버튼은 어디 · 무엇 · 어떻게 중 (    )입니다.',
+    opts: ['무엇', '어떻게', '언제', '어디'], ans: 3,
+    exp: '재생 버튼(어디) 색(무엇)을 초록으로(어떻게).' },
+  { id: 49, part: 3, type: '부탁 고치기', lv: 2, q: '"글자 좀 바꿔 줘" 를 바르게 고친 부탁은?',
+    opts: ['"곡 제목을 우주 산책 (라이브) 로 바꿔 줘"', '"아무 글자나 바꿔 줘"', '"처음부터 다시 써 줘"', '"글자 다 바꿔 줘"'], ans: 0,
+    exp: '어디(곡 제목)와 어떻게(무엇으로 바꿀지)를 함께 말합니다.' },
+  { id: 50, part: 3, type: '순서', lv: 3, q: '고친 결과를 친구에게 보여 주기까지 순서대로 놓아 봅니다.',
+    items: ['바뀐 줄 확인하기', '커밋하고 푸시하기', '그 부분만 고쳐 달라고 부탁하기', 'Pages 주소로 열어 보기'], ans: 'CABD',
+    exp: '부탁하고, 바뀐 줄을 확인한 뒤, 커밋 · 푸시하면 Pages 주소로 새 모습을 봅니다.' },
+];
+
+/* ===================== 감방 안 물건 ===================== */
+const OBJECTS = [
+  { key: 'bed',    name: '침대',      found: '삐걱대는 침대 매트리스 밑에서 접힌 쪽지가 나왔다.' },
+  { key: 'window', name: '철창 창문', found: '창살 틈에 끼워 둔 종잇조각을 빼냈다.' },
+  { key: 'toilet', name: '변기',      found: '변기 물통 뚜껑 안쪽에 글씨가 긁혀 있다.' },
+  { key: 'tally',  name: '벽의 낙서', found: '날짜를 센 빗금들 사이에 작은 글씨가 숨어 있다.' },
+  { key: 'book',   name: '낡은 책',   found: '찢어진 책장 사이에서 메모가 떨어졌다.' },
+  { key: 'chain',  name: '쇠사슬',    found: '녹슨 쇠사슬 고리에 쪽지가 묶여 있다.' },
+  { key: 'tray',   name: '식판',      found: '식판 밑바닥에 누군가 문제를 새겨 두었다.' },
+  { key: 'bulb',   name: '전구',      found: '흔들리는 전구 갓 안쪽에 글씨가 비친다.' },
+];
+
+const CIRCLED = ['①', '②', '③', '④'];
+const LETTERS = ['A', 'B', 'C', 'D'];
+const KOR = ['가', '나', '다', '라'];
+const CHOICE_TYPES = ['4지선다', '빈칸', '상황', '부탁 고치기'];
+
+/* ===================== 상태 ===================== */
+const state = { part: null, list: [], owner: {}, objOf: {}, result: {}, finished: false };
+
+const $ = (id) => document.getElementById(id);
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+/* ===================== 소리 ===================== */
+let actx = null;
+function beep(freq, dur, type = 'sine', vol = 0.08, delay = 0) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    const t = actx.currentTime + delay;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(actx.destination);
+    o.start(t); o.stop(t + dur);
+  } catch (e) { /* 소리가 안 나도 게임은 계속 */ }
+}
+const sfx = {
+  ok()    { beep(660, .12, 'triangle'); beep(990, .2, 'triangle', .08, .1); },
+  no()    { beep(140, .3, 'sawtooth', .06); },
+  click() { beep(1200, .04, 'square', .04); },
+  clank() { beep(90, .4, 'square', .07); beep(60, .5, 'sawtooth', .05, .05); },
+  win()   { [523, 659, 784, 1047].forEach((f, i) => beep(f, .3, 'triangle', .08, i * .13)); },
+};
+
+/* ===================== 3D 감방 만들기 ===================== */
+const W = 900, H = 520, D = 700;
+const room = $('room');
+
+function face(cls, w, h, tf) {
+  const f = el('div', 'face ' + cls);
+  f.style.cssText = `width:${w}px;height:${h}px;margin:${-h / 2}px 0 0 ${-w / 2}px;transform:${tf}`;
+  room.appendChild(f);
+  return f;
+}
+
+function makeBox(w, h, d, x, y, z, c) {
+  const b = el('div', 'box');
+  b.style.transform = `translate3d(${x}px,${y}px,${z}px)`;
+  const sides = [
+    [w, h, `translateZ(${d / 2}px)`, c.front],
+    [w, h, `rotateY(180deg) translateZ(${d / 2}px)`, c.side],
+    [d, h, `rotateY(90deg) translateZ(${w / 2}px)`, c.side],
+    [d, h, `rotateY(-90deg) translateZ(${w / 2}px)`, c.side],
+    [w, d, `rotateX(90deg) translateZ(${h / 2}px)`, c.top],
+    [w, d, `rotateX(-90deg) translateZ(${h / 2}px)`, '#111'],
+  ];
+  sides.forEach(([fw, fh, tf, bg]) => {
+    const f = el('div', 'bf');
+    f.style.cssText = `width:${fw}px;height:${fh}px;margin:${-fh / 2}px 0 0 ${-fw / 2}px;transform:${tf};background:${bg}`;
+    b.appendChild(f);
+  });
+  return b;
+}
+
+function group(x, y, z) {
+  const g = el('div', 'box');
+  g.style.transform = `translate3d(${x}px,${y}px,${z}px)`;
+  room.appendChild(g);
+  return g;
+}
+
+function addBadge(host, topPx) {
+  const b = el('div', 'badge');
+  b.style.top = topPx + 'px';
+  host.appendChild(b);
+  return b;
+}
+
+const objEls = {};   // key -> { host, badge }
+
+function buildRoom() {
+  // 벽 · 바닥 · 천장
+  const back  = face('wall', W, H, `translateZ(${-D / 2}px)`);
+  const left  = face('wall side', D, H, `translateX(${-W / 2}px) rotateY(90deg)`);
+  const right = face('wall side', D, H, `translateX(${W / 2}px) rotateY(-90deg)`);
+  face('floor', W, D, `translateY(${H / 2}px) rotateX(90deg)`);
+  face('ceiling', W, D, `translateY(${-H / 2}px) rotateX(-90deg)`);
+
+  // 철창 창문 (뒷벽)
+  const win = el('div', 'window clue', '<div class="crossbar"></div>');
+  back.appendChild(win);
+  objEls.window = { host: win, badge: addBadge(win, -52) };
+
+  // 철문 (뒷벽)
+  const doorway = el('div', 'doorway', '<div class="glow"></div>');
+  const door = el('div', 'door');
+  const pad = el('div', 'padlock');
+  door.appendChild(pad);
+  doorway.appendChild(door);
+  back.appendChild(doorway);
+  door.addEventListener('click', onDoorClick);
+
+  // 벽의 낙서 (왼쪽 벽)
+  const tally = el('div', 'tally clue');
+  let marks = '';
+  for (let g = 0; g < 4; g++) {
+    const ox = g * 56;
+    for (let i = 0; i < 4; i++) marks += `<line x1="${ox + 6 + i * 10}" y1="20" x2="${ox + 4 + i * 10}" y2="80"/>`;
+    marks += `<line x1="${ox}" y1="70" x2="${ox + 44}" y2="28"/>`;
+  }
+  tally.innerHTML = `<svg viewBox="0 0 230 120"><g stroke="#cfc6b0" stroke-width="3" stroke-linecap="round" opacity=".6">${marks}</g>
+    <text x="10" y="112" fill="#cfc6b0" opacity=".45" font-size="16" font-family="serif">문은 숫자로 열린다</text></svg>`;
+  left.appendChild(tally);
+  objEls.tally = { host: tally, badge: addBadge(tally, -40) };
+
+  // 쇠사슬 (오른쪽 벽)
+  const chain = el('div', 'chain clue');
+  let links = '';
+  for (let i = 0; i < 9; i++) {
+    const y = 18 + i * 24;
+    links += i % 2
+      ? `<rect x="54" y="${y}" width="12" height="30" rx="6" fill="none" stroke="#6d665a" stroke-width="5"/>`
+      : `<rect x="46" y="${y}" width="28" height="30" rx="12" fill="none" stroke="#8a8172" stroke-width="5"/>`;
+  }
+  chain.innerHTML = `<svg viewBox="0 0 120 260"><rect x="40" y="0" width="40" height="16" rx="3" fill="#3b372f"/>${links}
+    <path d="M30 236 a30 22 0 0 0 60 0" fill="none" stroke="#7a7265" stroke-width="7"/></svg>`;
+  right.appendChild(chain);
+  objEls.chain = { host: chain, badge: addBadge(chain, -40) };
+
+  const metal = { front: 'linear-gradient(#5d5850,#3a3630)', side: 'linear-gradient(#4a463f,#2c2925)', top: '#6a655b' };
+  const steel = { front: 'linear-gradient(#a7aaa8,#6d7170)', side: 'linear-gradient(#7d807f,#4c4f4e)', top: '#c2c5c3' };
+
+  // 침대
+  const bed = group(-W / 2 + 110, 0, -40);
+  bed.classList.add('clue');
+  bed.appendChild(makeBox(180, 38, 380, 0, H / 2 - 22 - 19, 0, metal));
+  [[-80, -180], [80, -180], [-80, 180], [80, 180]].forEach(([lx, lz]) =>
+    bed.appendChild(makeBox(12, 22, 12, lx, H / 2 - 11, lz, metal)));
+  bed.appendChild(makeBox(170, 22, 370, 0, H / 2 - 60 - 11, 0,
+    { front: 'linear-gradient(#77705e,#575141)', side: 'linear-gradient(#6a6453,#4c4739)', top: 'repeating-linear-gradient(90deg,#8a826d 0 14px,#7c7562 14px 28px)' }));
+  bed.appendChild(makeBox(130, 14, 70, 0, H / 2 - 82 - 7, -140,
+    { front: '#b4ab95', side: '#9a917c', top: '#c9c0a8' }));
+  objEls.bed = { host: bed, badge: addBadge(bed, H / 2 - 170) };
+
+  // 변기
+  const toilet = group(W / 2 - 80, 0, -290);
+  toilet.classList.add('clue');
+  toilet.appendChild(makeBox(70, 55, 80, 0, H / 2 - 27.5, 20, steel));
+  toilet.appendChild(makeBox(78, 90, 24, 0, H / 2 - 45, -42, steel));
+  objEls.toilet = { host: toilet, badge: addBadge(toilet, H / 2 - 150) };
+
+  // 낡은 책
+  const book = group(-130, 0, 230);
+  book.classList.add('clue');
+  book.appendChild(makeBox(80, 16, 58, 0, H / 2 - 8, 0,
+    { front: 'repeating-linear-gradient(#e8dfc6 0 2px,#c9bfa6 2px 3px)', side: '#6b2a20', top: 'linear-gradient(135deg,#7d3326,#4e1d15)' }));
+  objEls.book = { host: book, badge: addBadge(book, H / 2 - 70) };
+
+  // 식판
+  const tray = group(190, 0, 210);
+  tray.classList.add('clue');
+  tray.appendChild(makeBox(130, 8, 85, 0, H / 2 - 4, 0, steel));
+  tray.appendChild(makeBox(22, 26, 22, 38, H / 2 - 8 - 13, -15,
+    { front: 'linear-gradient(#9aa0a0,#5d6262)', side: '#5d6262', top: '#2b1d10' }));
+  tray.appendChild(makeBox(40, 10, 26, -25, H / 2 - 8 - 5, 10,
+    { front: '#b9a273', side: '#9c8758', top: '#d4bd8a' }));
+  objEls.tray = { host: tray, badge: addBadge(tray, H / 2 - 80) };
+
+  // 전구
+  const bulb = group(0, -H / 2, 60);
+  bulb.classList.add('clue');
+  bulb.appendChild(el('div', 'bulb-art', '<div class="wire"></div><div class="cap"></div><div class="glass"></div>'));
+  objEls.bulb = { host: bulb, badge: addBadge(bulb, 128) };
+
+  OBJECTS.forEach((o) => objEls[o.key].host.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openObject(o.key);
+  }));
+
+  state.doorway = doorway; state.door = door; state.padlock = pad;
+}
+
+/* 화면 크기에 맞추기 */
+function fit() {
+  const s = Math.min(window.innerWidth / 1050, (window.innerHeight - 120) / 700);
+  room.style.setProperty('--s', Math.max(0.3, s).toFixed(3));
+}
+window.addEventListener('resize', fit);
+
+/* 마우스 · 손가락으로 살짝 둘러보기 */
+$('scene').addEventListener('pointermove', (e) => {
+  const x = e.clientX / window.innerWidth - 0.5;
+  const y = e.clientY / window.innerHeight - 0.5;
+  room.style.setProperty('--ry', (x * 16).toFixed(2) + 'deg');
+  room.style.setProperty('--rx', (-6 - y * 6).toFixed(2) + 'deg');
+});
+
+/* ===================== 진행 ===================== */
+function startPart(partId) {
+  state.part = PARTS.find((p) => p.id === partId);
+  state.list = QUESTIONS.filter((q) => q.part === partId);
+  state.result = {};
+  state.finished = false;
+  state.owner = {}; state.objOf = {};
+  OBJECTS.forEach((o) => (state.owner[o.key] = []));
+  state.list.forEach((q, i) => {
+    const key = OBJECTS[i % OBJECTS.length].key;
+    state.owner[key].push(q);
+    state.objOf[q.id] = key;
+  });
+
+  // 문 · 자물쇠 원래대로
+  state.doorway.classList.remove('open');
+  state.padlock.classList.remove('unlocked', 'drop');
+
+  // 자물쇠 칸
+  const cells = $('cells');
+  cells.innerHTML = '';
+  state.list.forEach((q) => {
+    const c = el('div', 'cell', '?');
+    c.id = 'cell-' + q.id;
+    c.title = 'Q' + q.id;
+    cells.appendChild(c);
+  });
+
+  $('where').textContent = state.part.name.replace(/^Part (\d)/, '$1번 감방');
+  $('totalCount').textContent = state.list.length;
+  ['hudTop', 'hint', 'hudLock'].forEach((id) => ($(id).hidden = false));
+  closeOverlay();
+  refresh();
+}
+
+function refresh() {
+  const answered = Object.keys(state.result).length;
+  const right = Object.values(state.result).filter(Boolean).length;
+  $('stat').innerHTML = `푼 문제 <b>${answered}</b>/${state.list.length} · 맞힘 <b>${right}</b>`;
+  $('openCount').textContent = right;
+  OBJECTS.forEach((o) => {
+    const qs = state.owner[o.key];
+    const left = qs.filter((q) => !(q.id in state.result)).length;
+    const bad = qs.some((q) => state.result[q.id] === false);
+    const b = objEls[o.key].badge;
+    b.className = 'badge' + (left ? '' : ' done') + (bad ? ' has-bad' : '');
+    b.textContent = left ? `${o.name} · 쪽지 ${left}` : `${o.name} ✓`;
+  });
+}
+
+function openObject(key) {
+  if (!state.part || state.finished) return;
+  const q = state.owner[key].find((x) => !(x.id in state.result));
+  sfx.click();
+  if (!q) { toast('여기는 이미 샅샅이 뒤졌다. 다른 물건을 찾아보자.'); return; }
+  showQuestion(q, key);
+}
+
+function onDoorClick(e) {
+  e.stopPropagation();
+  if (!state.part || state.finished) return;
+  const left = state.list.length - Object.values(state.result).filter(Boolean).length;
+  state.door.classList.remove('rattle'); void state.door.offsetWidth; state.door.classList.add('rattle');
+  sfx.clank();
+  toast(`철문이 꿈쩍도 하지 않는다. 자물쇠 숫자가 ${left}개 더 남았다.`);
+}
+
+/* ===================== 문제 창 ===================== */
+function showQuestion(q, key) {
+  const obj = OBJECTS.find((o) => o.key === key);
+  const card = $('card');
+  card.innerHTML = '';
+  const close = el('button', 'close', '✕');
+  close.title = '닫기';
+  close.onclick = closeOverlay;
+  card.appendChild(close);
+  card.appendChild(el('p', 'found', '🔦 ' + esc(obj.found)));
+  card.appendChild(el('div', 'qmeta',
+    `<span class="tag num">Q${q.id}</span><span class="tag">${esc(q.type)}</span><span class="tag">${'★'.repeat(q.lv)}</span>`));
+  card.appendChild(el('p', 'qtext', esc(q.q).replace('(    )', '<span class="blank">?</span>')));
+
+  const body = el('div');
+  card.appendChild(body);
+  const fb = el('div');
+  card.appendChild(fb);
+
+  const done = (given, correct) => finishQuestion(q, given, correct, fb, close);
+
+  if (CHOICE_TYPES.includes(q.type)) renderChoice(q, body, done);
+  else if (q.type === 'OX') renderOX(q, body, done);
+  else if (q.type === '순서') renderOrder(q, body, done);
+  else if (q.type === '짝 맞히기') renderMatch(q, body, done);
+
+  openOverlay();
+}
+
+function renderChoice(q, body, done) {
+  const box = el('div', 'opts');
+  const btns = q.opts.map((t, i) => {
+    const b = el('button', 'opt', `<span class="key">${CIRCLED[i]}</span>${esc(t)}`);
+    b.onclick = () => {
+      btns.forEach((x) => (x.disabled = true));
+      const ok = i === q.ans;
+      btns[q.ans].classList.add('correct');
+      if (!ok) b.classList.add('wrong');
+      done(`${CIRCLED[i]} ${q.opts[i]}`, ok);
+    };
+    box.appendChild(b);
+    return b;
+  });
+  body.appendChild(box);
+}
+
+function renderOX(q, body, done) {
+  const box = el('div', 'opts ox');
+  const btns = ['O', 'X'].map((v) => {
+    const b = el('button', 'opt', v);
+    b.onclick = () => {
+      btns.forEach((x) => (x.disabled = true));
+      const ok = v === q.ans;
+      btns[q.ans === 'O' ? 0 : 1].classList.add('correct');
+      if (!ok) b.classList.add('wrong');
+      done(v, ok);
+    };
+    box.appendChild(b);
+    return b;
+  });
+  body.appendChild(box);
+}
+
+function renderOrder(q, body, done) {
+  let seq = [];
+  const slots = el('div', 'slots');
+  const box = el('div', 'opts');
+  const actions = el('div', 'actions');
+  const reset = el('button', 'btn', '다시 놓기');
+  const submit = el('button', 'btn primary', '이 순서로 제출');
+
+  const btns = q.items.map((t, i) => {
+    const b = el('button', 'opt');
+    b.onclick = () => {
+      const L = LETTERS[i];
+      seq = seq.includes(L) ? seq.filter((x) => x !== L) : [...seq, L];
+      sfx.click();
+      draw();
+    };
+    box.appendChild(b);
+    return b;
+  });
+
+  function draw() {
+    slots.innerHTML = '';
+    for (let i = 0; i < 4; i++) {
+      if (i) slots.appendChild(el('span', 'arrow', '→'));
+      slots.appendChild(el('div', 'slot' + (seq[i] ? ' filled' : ''), seq[i] || (i + 1)));
+    }
+    btns.forEach((b, i) => {
+      const pos = seq.indexOf(LETTERS[i]);
+      b.className = 'opt' + (pos >= 0 ? ' picked' : '');
+      b.innerHTML = (pos >= 0 ? `<span class="order-no">${pos + 1}</span>` : '') +
+        `<span class="key">${LETTERS[i]}</span>${esc(q.items[i])}`;
+    });
+    submit.disabled = seq.length !== 4;
+  }
+
+  reset.onclick = () => { seq = []; draw(); };
+  submit.onclick = () => {
+    const given = seq.join('');
+    const ok = given === q.ans;
+    btns.forEach((b) => (b.disabled = true));
+    reset.disabled = submit.disabled = true;
+    done(seq.join(' → '), ok);
+  };
+
+  body.appendChild(el('p', 'found', '맨 먼저 일어나는 것부터 차례로 눌러 보세요. 다시 누르면 빠집니다.'));
+  body.appendChild(slots);
+  body.appendChild(box);
+  actions.append(reset, submit);
+  body.appendChild(actions);
+  draw();
+}
+
+function renderMatch(q, body, done) {
+  const pick = [null, null, null, null];
+  body.appendChild(el('div', 'desc-list',
+    q.descs.map((d, i) => `<div><b>${KOR[i]}</b>${esc(d)}</div>`).join('')));
+
+  const rows = q.terms.map((t, r) => {
+    const row = el('div', 'match-row');
+    row.appendChild(el('div', 'term', `<b>${r + 1}</b>${esc(t)}`));
+    const chips = el('div', 'chips');
+    const cs = KOR.map((k) => {
+      const c = el('button', 'chip', k);
+      c.onclick = () => {
+        pick.forEach((p, j) => { if (p === k && j !== r) pick[j] = null; });   // 한 설명은 한 번만
+        pick[r] = pick[r] === k ? null : k;
+        sfx.click();
+        draw();
+      };
+      chips.appendChild(c);
+      return c;
+    });
+    row.appendChild(chips);
+    body.appendChild(row);
+    return { row, cs };
+  });
+
+  const actions = el('div', 'actions');
+  const submit = el('button', 'btn primary', '짝 맞춘 대로 제출');
+  actions.appendChild(submit);
+  body.appendChild(actions);
+
+  function draw() {
+    rows.forEach(({ cs }, r) => cs.forEach((c, i) => c.classList.toggle('on', pick[r] === KOR[i])));
+    submit.disabled = pick.some((p) => !p);
+  }
+  submit.onclick = () => {
+    let ok = true;
+    rows.forEach(({ row, cs }, r) => {
+      const right = pick[r] === q.ans[r];
+      if (!right) ok = false;
+      row.classList.add(right ? 'ok' : 'no');
+      cs.forEach((c) => (c.disabled = true));
+    });
+    submit.disabled = true;
+    done(pick.map((p, i) => `${i + 1}-${p}`).join(' · '), ok);
+  };
+  draw();
+}
+
+function answerText(q) {
+  if (CHOICE_TYPES.includes(q.type)) return `${CIRCLED[q.ans]} ${q.opts[q.ans]}`;
+  if (q.type === 'OX') return q.ans;
+  if (q.type === '순서') return q.ans.split('').join(' → ');
+  if (q.type === '짝 맞히기') return q.ans.map((a, i) => `${i + 1}-${a}`).join(' · ');
+}
+
+function finishQuestion(q, given, ok, fb, closeBtn) {
+  state.result[q.id] = ok;
+  ok ? sfx.ok() : sfx.no();
+
+  fb.className = 'feedback ' + (ok ? 'ok' : 'no');
+  fb.innerHTML =
+    `<div class="head">${ok ? '⭕ 맞았다! 자물쇠 숫자 하나가 풀렸다.' : '❌ 틀렸다… 이 숫자는 잠긴 채로 남는다.'}</div>` +
+    (ok ? '' : `<div class="ans">내 답: ${esc(given)}</div>`) +
+    `<div class="ans">정답: <b>${esc(answerText(q))}</b></div>` +
+    `<div class="exp">${esc(q.exp)}</div>`;
+
+  const actions = el('div', 'actions');
+  const allDone = Object.keys(state.result).length === state.list.length;
+  const next = el('button', 'btn primary', allDone ? '철문 앞으로' : '확인');
+  next.onclick = () => {
+    closeOverlay();
+    revealCell(q, ok);
+    refresh();
+    if (allDone) setTimeout(finishPart, 700);
+  };
+  actions.appendChild(next);
+  fb.appendChild(actions);
+  closeBtn.onclick = next.onclick;
+  next.focus();
+}
+
+function revealCell(q, ok) {
+  const c = $('cell-' + q.id);
+  c.className = 'cell ' + (ok ? 'open' : 'bad');
+  c.textContent = ok ? String(q.id % 10) : '✕';
+}
+
+function finishPart() {
+  state.finished = true;
+  const total = state.list.length;
+  const right = Object.values(state.result).filter(Boolean).length;
+  const success = right === total;
+
+  if (success) {
+    state.padlock.classList.add('unlocked');
+    sfx.clank();
+    setTimeout(() => { state.padlock.classList.add('drop'); }, 500);
+    setTimeout(() => { state.doorway.classList.add('open'); sfx.win(); flash('gold'); }, 900);
+    setTimeout(() => showResult(right, total, true), 3200);
+  } else {
+    state.door.classList.remove('rattle'); void state.door.offsetWidth; state.door.classList.add('rattle');
+    sfx.clank(); flash('red');
+    setTimeout(() => showResult(right, total, false), 1100);
+  }
+}
+
+function showResult(right, total, success) {
+  const card = $('card');
+  const wrong = state.list.filter((q) => state.result[q.id] === false);
+  const pct = Math.round((right / total) * 100);
+  let msg;
+  if (success) msg = '모든 숫자가 맞아떨어졌다. 철문이 삐걱 열리고 복도 끝에서 바깥 공기가 들어온다!';
+  else if (pct >= 70) msg = '거의 다 왔다! 잠긴 숫자 몇 개만 더 풀면 문이 열린다.';
+  else if (pct >= 40) msg = '자물쇠가 반쯤 풀렸다. 해설을 떠올리며 다시 도전해 보자.';
+  else msg = '간수가 순찰을 돈다… 해설을 다시 읽고 처음부터 탈출을 시도하자.';
+
+  card.innerHTML = `
+    <div class="result">
+      <div style="font-size:46px">${success ? '🗝️' : '🔒'}</div>
+      <h2 style="color:${success ? 'var(--ok)' : 'var(--bad)'}">${success ? '탈출 성공!' : '탈출 실패'}</h2>
+      <div class="big">${right} / ${total}</div>
+      <p class="msg">${esc(state.part.name)} · ${pct}점<br>${msg}</p>
+      ${wrong.length ? `<div class="wrong-list">틀린 문제<br>${wrong.map((q) =>
+        `<div><b>Q${q.id}</b> ${esc(q.q)}<br>→ 정답: ${esc(answerText(q))}</div>`).join('')}</div>` : ''}
+      <div class="actions">
+        <button class="btn primary" id="retryBtn">다시 풀기</button>
+        <button class="btn" id="menuBtn">다른 Part 고르기</button>
+      </div>
+    </div>`;
+  $('retryBtn').onclick = () => startPart(state.part.id);
+  $('menuBtn').onclick = showStart;
+  openOverlay();
+}
+
+/* ===================== 시작 화면 ===================== */
+function showStart() {
+  state.part = null;
+  ['hudTop', 'hint', 'hudLock'].forEach((id) => ($(id).hidden = true));
+  state.doorway.classList.remove('open');
+  state.padlock.classList.remove('unlocked', 'drop');
+  const card = $('card');
+  card.innerHTML = `
+    <div class="start">
+      <h1>⛓️ 감옥 탈출 용어 퀴즈</h1>
+      <p class="sub">눈을 떠 보니 차가운 감방 안이다. 철문은 숫자 자물쇠로 잠겨 있다.<br>
+      방 안 물건을 눌러 숨겨진 쪽지(문제)를 찾아 풀어라. 맞힐 때마다 자물쇠 숫자가 하나씩 열리고,
+      <b style="color:var(--gold)">모두 맞히면 문이 열린다.</b> 갇힐 감방(Part)을 골라라.</p>
+      <div class="parts">
+        ${PARTS.map((p) => {
+          const n = QUESTIONS.filter((q) => q.part === p.id).length;
+          return `<button class="part-btn" data-part="${p.id}">
+            <span class="cellno">${p.cell}</span>
+            <span><div class="t">${esc(p.name)}</div><div class="d">쪽지 ${n}장 · 자물쇠 숫자 ${n}개</div></span>
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  card.querySelectorAll('.part-btn').forEach((b) =>
+    (b.onclick = () => { sfx.clank(); startPart(Number(b.dataset.part)); }));
+  openOverlay();
+}
+
+function confirmExit() {
+  const card = $('card');
+  card.innerHTML = `
+    <div class="result">
+      <h2>감방을 나갈까?</h2>
+      <p class="msg">지금까지 푼 기록은 사라지고 Part 고르기 화면으로 돌아갑니다.</p>
+      <div class="actions">
+        <button class="btn" id="stayBtn">계속 풀기</button>
+        <button class="btn primary" id="leaveBtn">나가기</button>
+      </div>
+    </div>`;
+  $('stayBtn').onclick = closeOverlay;
+  $('leaveBtn').onclick = showStart;
+  openOverlay();
+}
+$('exitBtn').onclick = confirmExit;
+
+/* ===================== 작은 도우미 ===================== */
+function openOverlay() { $('overlay').classList.add('show'); }
+function closeOverlay() { $('overlay').classList.remove('show'); }
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function flash(kind) {
+  const f = $('flash');
+  f.className = 'flash';
+  void f.offsetWidth;
+  f.className = 'flash ' + kind;
+}
+
+/* ===================== 시작 ===================== */
+buildRoom();
+fit();
+showStart();
+</script>
+</body>
+</html>
