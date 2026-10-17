@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>불꽃놀이</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #05060f;
+    font-family: system-ui, "Malgun Gothic", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .guide {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+    padding: 10px 18px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 15px;
+    text-align: center;
+    pointer-events: none;
+    transition: opacity 0.6s;
+  }
+  .guide b { color: #ffd76a; }
+  .power {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    pointer-events: none;
+  }
+  .bar {
+    width: 160px;
+    height: 6px;
+    margin-top: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+  }
+  .fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #6af, #f6a, #fd6);
+    transition: width 0.1s;
+  }
+  .show {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    padding: 12px 20px;
+    border: 1px solid rgba(255, 215, 106, 0.6);
+    border-radius: 999px;
+    background: rgba(255, 215, 106, 0.12);
+    color: #ffd76a;
+    font: inherit;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .show:hover { background: rgba(255, 215, 106, 0.22); }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+
+<div class="guide" id="guide">
+  화면 아무 곳이나 <b>클릭</b>하면 불꽃이 터져요 · <b>빠르게 여러 번</b> 누를수록 더 커져요
+</div>
+
+<div class="power">
+  불꽃 크기 <span id="level">1</span>단계 · 지금 불꽃 <span id="count">0</span>/5개
+  <div class="bar"><div class="fill" id="fill"></div></div>
+</div>
+
+<button class="show" id="showBtn">✨ 자동 불꽃쇼</button>
+
+<script>
+  const canvas = document.getElementById('sky');
+  const ctx = canvas.getContext('2d');
+  const levelText = document.getElementById('level');
+  const countText = document.getElementById('count');
+  const fillBar = document.getElementById('fill');
+  const guide = document.getElementById('guide');
+  const showBtn = document.getElementById('showBtn');
+
+  let width, height;
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // 화면에 동시에 있을 수 있는 불꽃은 최대 5개
+  const MAX_BURSTS = 5;
+  const bursts = [];
+  const flashes = [];
+
+  // 색: 지난번 색과 충분히 다른 색을 고른다
+  let lastHue = Math.random() * 360;
+  function nextHue() {
+    lastHue = (lastHue + 70 + Math.random() * 220) % 360;
+    return lastHue;
+  }
+
+  // 불꽃 하나를 터뜨린다 (power: 0 ~ 10)
+  function launch(x, y, power, hue = nextHue()) {
+    // 6개째가 되면 가장 오래된 불꽃을 빠르게 사라지게 한다
+    const alive = bursts.filter(b => !b.dying);
+    if (alive.length >= MAX_BURSTS) {
+      alive[0].dying = true;
+      alive[0].particles.forEach(p => p.decay = Math.max(p.decay, 0.06));
+    }
+
+    const scale = 1 + power * 0.35;            // 크기 배율
+    const count = Math.floor(50 + power * 15); // 불꽃 알갱이 수
+    const speed = 2.2 * Math.sqrt(scale);
+    const particles = [];
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const v = speed * (0.4 + Math.random() * 0.8);
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * v,
+        vy: Math.sin(angle) * v,
+        hue: hue + (Math.random() * 30 - 15),
+        life: 1,
+        decay: 0.004 + Math.random() * 0.005,  // 작을수록 오래 남음
+        size: 1.2 + Math.random() * 1.6,
+        trail: []
+      });
+    }
+
+    // 큰 불꽃에는 다른 색 반짝이를 섞는다
+    if (power >= 4) {
+      const hue2 = (hue + 180) % 360;
+      for (let i = 0; i < power * 5; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const v = speed * 0.5 * Math.random();
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * v,
+          vy: Math.sin(angle) * v,
+          hue: hue2,
+          life: 1,
+          decay: 0.006 + Math.random() * 0.006,
+          size: 1 + Math.random(),
+          trail: [],
+          sparkle: true
+        });
+      }
+    }
+
+    bursts.push({ particles, dying: false });
+    flashes.push({ x, y, r: 30 * scale, hue, life: 1 });
+    guide.style.opacity = '0.35';
+  }
+
+  // 클릭: 연속으로 누르면 힘이 쌓이고, 쉬면 천천히 줄어든다
+  const MAX_POWER = 10;
+  let power = 0;
+  let lastClick = 0;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const now = performance.now();
+    if (now - lastClick < 700) {
+      power = Math.min(MAX_POWER, power + 1);
+    } else {
+      power = Math.max(0, power - 2);
+    }
+    lastClick = now;
+    launch(e.clientX, e.clientY, power);
+    updatePower();
+  });
+
+  function updatePower() {
+    levelText.textContent = power + 1;
+    fillBar.style.width = (power / MAX_POWER * 100) + '%';
+  }
+
+  // ---------- 자동 불꽃쇼 ----------
+  // [기다릴 시간(ms), 가로 위치(0~1), 세로 위치(0~1), 크기, 색(없으면 자동)]
+  const SHOW = [
+    // 1막: 왼쪽에서 오른쪽으로 무지개 물결
+    [0,    0.15, 0.40, 2, 0],
+    [350,  0.32, 0.32, 2, 50],
+    [350,  0.50, 0.28, 2, 120],
+    [350,  0.68, 0.32, 2, 200],
+    [350,  0.85, 0.40, 2, 280],
+    // 2막: 양쪽에서 짝을 지어 가운데로
+    [1400, 0.20, 0.45, 4, 330],
+    [0,    0.80, 0.45, 4, 330],
+    [700,  0.35, 0.35, 4, 190],
+    [0,    0.65, 0.35, 4, 190],
+    [900,  0.50, 0.30, 7, 45],
+    // 3막: 가운데에서 바깥으로 퍼지는 겹꽃
+    [1800, 0.50, 0.40, 5, 270],
+    [400,  0.30, 0.30, 3, 160],
+    [0,    0.70, 0.30, 3, 160],
+    [400,  0.15, 0.50, 3, 20],
+    [0,    0.85, 0.50, 3, 20],
+    // 4막: 피날레
+    [1800, 0.50, 0.35, 10, 0],
+    [600,  0.25, 0.30, 6],
+    [250,  0.75, 0.30, 6],
+    [250,  0.38, 0.50, 6],
+    [250,  0.62, 0.50, 6],
+    [700,  0.50, 0.30, 10, 50],
+  ];
+
+  let showTimer = null;
+
+  function playShow(step = 0) {
+    if (step >= SHOW.length) {
+      showTimer = setTimeout(stopShow, 3000);
+      return;
+    }
+    const [wait, fx, fy, pw, hue] = SHOW[step];
+    showTimer = setTimeout(() => {
+      launch(fx * width, fy * height, pw, hue === undefined ? nextHue() : hue);
+      playShow(step + 1);
+    }, wait);
+  }
+
+  function stopShow() {
+    clearTimeout(showTimer);
+    showTimer = null;
+    showBtn.textContent = '✨ 자동 불꽃쇼';
+  }
+
+  showBtn.addEventListener('click', () => {
+    if (showTimer) {
+      stopShow();
+    } else {
+      showBtn.textContent = '■ 멈추기';
+      playShow();
+    }
+  });
+
+  // ---------- 그리기 ----------
+  function frame() {
+    // 반투명하게 덮어서 지나간 자리에 빛이 남게 한다
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(5, 6, 15, 0.18)';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (let i = flashes.length - 1; i >= 0; i--) {
+      const f = flashes[i];
+      const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+      g.addColorStop(0, `hsla(${f.hue}, 100%, 85%, ${f.life * 0.6})`);
+      g.addColorStop(1, `hsla(${f.hue}, 100%, 50%, 0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+      ctx.fill();
+      f.life -= 0.06;
+      if (f.life <= 0) flashes.splice(i, 1);
+    }
+
+    for (let b = bursts.length - 1; b >= 0; b--) {
+      const list = bursts[b].particles;
+
+      for (let i = list.length - 1; i >= 0; i--) {
+        const p = list[i];
+
+        p.trail.push(p.x, p.y);
+        if (p.trail.length > 20) p.trail.splice(0, 2);
+
+        p.vx *= 0.975;        // 공기 저항: 천천히 느려짐
+        p.vy *= 0.975;
+        p.vy += 0.025;        // 아주 약한 중력: 천천히 떨어짐
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= p.decay;
+
+        if (p.life <= 0) {
+          list.splice(i, 1);
+          continue;
+        }
+
+        // 꼬리: 한 번에 선 하나로 그려서 가볍게
+        const t = p.trail;
+        ctx.strokeStyle = `hsla(${p.hue}, 100%, 60%, ${p.life * 0.4})`;
+        ctx.lineWidth = p.size * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(t[0], t[1]);
+        for (let j = 2; j < t.length; j += 2) ctx.lineTo(t[j], t[j + 1]);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+
+        // 머리
+        let alpha = p.life;
+        if (p.sparkle) alpha *= Math.random() > 0.5 ? 1 : 0.2;
+        ctx.fillStyle = `hsla(${p.hue}, 100%, ${60 + p.life * 25}%, ${alpha})`;
+        ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+      }
+
+      if (list.length === 0) bursts.splice(b, 1);
+    }
+
+    countText.textContent = bursts.filter(b => !b.dying).length;
+
+    // 한동안 안 누르면 힘이 서서히 줄어든다
+    if (power > 0 && performance.now() - lastClick > 1500) {
+      power -= 1;
+      lastClick = performance.now() - 1200;
+      updatePower();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  frame();
+</script>
+</body>
+</html>
