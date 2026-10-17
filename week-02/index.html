@@ -386,7 +386,7 @@
   <span class="stat" id="stat"></span>
   <button class="btn-small" id="exitBtn">나가기</button>
 </div>
-<div class="hint" id="hint" hidden>빛나는 물건을 눌러 단서(문제)를 찾아라. 다 맞히면 철문이 열린다.</div>
+<div class="hint" id="hint" hidden>금색 표시가 붙은 물건 하나를 눌러 쪽지(문제)를 풀어라. 풀면 다음 물건이 빛난다.</div>
 <div class="hud-lock" id="hudLock" hidden>
   <div class="label"><span>🔒 철문 자물쇠</span><span>열린 숫자 <b id="openCount">0</b> / <span id="totalCount">0</span></span></div>
   <div class="cells" id="cells"></div>
@@ -573,6 +573,7 @@ const CIRCLED = ['①', '②', '③', '④'];
 const LETTERS = ['A', 'B', 'C', 'D'];
 const KOR = ['가', '나', '다', '라'];
 const CHOICE_TYPES = ['4지선다', '빈칸', '상황', '부탁 고치기'];
+const PER_ESCAPE = 6;   // 한 번 탈출할 때 나오는 문제 수
 
 /* ===================== 상태 ===================== */
 const state = { part: null, list: [], owner: {}, objOf: {}, result: {}, finished: false };
@@ -776,7 +777,14 @@ $('scene').addEventListener('pointermove', (e) => {
 /* ===================== 진행 ===================== */
 function startPart(partId) {
   state.part = PARTS.find((p) => p.id === partId);
-  state.list = QUESTIONS.filter((q) => q.part === partId);
+  // 그 Part 문제 가운데 무작위로 PER_ESCAPE 개만 (번호 순서로)
+  const pool = QUESTIONS.filter((q) => q.part === partId);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  state.list = pool.slice(0, PER_ESCAPE).sort((a, b) => a.id - b.id);
+  state.spare = pool.slice(PER_ESCAPE);   // 틀리면 하나씩 꺼내 쓸 남은 문제
   state.result = {};
   state.finished = false;
   state.owner = {}; state.objOf = {};
@@ -794,15 +802,14 @@ function startPart(partId) {
   // 자물쇠 칸
   const cells = $('cells');
   cells.innerHTML = '';
-  state.list.forEach((q) => {
+  for (let i = 0; i < PER_ESCAPE; i++) {
     const c = el('div', 'cell', '?');
-    c.id = 'cell-' + q.id;
-    c.title = 'Q' + q.id;
+    c.id = 'cell-' + i;
     cells.appendChild(c);
-  });
+  }
 
   $('where').textContent = state.part.name.replace(/^Part (\d)/, '$1번 감방');
-  $('totalCount').textContent = state.list.length;
+  $('totalCount').textContent = PER_ESCAPE;
   ['hudTop', 'hint', 'hudLock'].forEach((id) => ($(id).hidden = false));
   closeOverlay();
   refresh();
@@ -811,30 +818,35 @@ function startPart(partId) {
 function refresh() {
   const answered = Object.keys(state.result).length;
   const right = Object.values(state.result).filter(Boolean).length;
-  $('stat').innerHTML = `푼 문제 <b>${answered}</b>/${state.list.length} · 맞힘 <b>${right}</b>`;
+  $('stat').innerHTML = `맞힘 <b>${right}</b>/${PER_ESCAPE} · 푼 문제 <b>${answered}</b>`;
   $('openCount').textContent = right;
+  // 지금 풀 문제가 있는 물건 하나에만 표시
+  const cur = currentQuestion();
+  const curKey = cur ? state.objOf[cur.id] : null;
   OBJECTS.forEach((o) => {
-    const qs = state.owner[o.key];
-    const left = qs.filter((q) => !(q.id in state.result)).length;
-    const bad = qs.some((q) => state.result[q.id] === false);
     const b = objEls[o.key].badge;
-    b.className = 'badge' + (left ? '' : ' done') + (bad ? ' has-bad' : '');
-    b.textContent = left ? `${o.name} · 쪽지 ${left}` : `${o.name} ✓`;
+    b.hidden = o.key !== curKey;
+    b.textContent = `${o.name} · 여기를 눌러!`;
   });
+}
+
+function currentQuestion() {
+  return state.list.find((q) => !(q.id in state.result));
 }
 
 function openObject(key) {
   if (!state.part || state.finished) return;
-  const q = state.owner[key].find((x) => !(x.id in state.result));
+  const q = currentQuestion();
   sfx.click();
-  if (!q) { toast('여기는 이미 샅샅이 뒤졌다. 다른 물건을 찾아보자.'); return; }
+  if (!q) return;
+  if (state.objOf[q.id] !== key) { toast('여기엔 아무것도 없다. 빛나는 물건을 찾아보자.'); return; }
   showQuestion(q, key);
 }
 
 function onDoorClick(e) {
   e.stopPropagation();
   if (!state.part || state.finished) return;
-  const left = state.list.length - Object.values(state.result).filter(Boolean).length;
+  const left = PER_ESCAPE - Object.values(state.result).filter(Boolean).length;
   state.door.classList.remove('rattle'); void state.door.offsetWidth; state.door.classList.add('rattle');
   sfx.clank();
   toast(`철문이 꿈쩍도 하지 않는다. 자물쇠 숫자가 ${left}개 더 남았다.`);
@@ -1014,15 +1026,31 @@ function finishQuestion(q, given, ok, fb, closeBtn) {
   state.result[q.id] = ok;
   ok ? sfx.ok() : sfx.no();
 
+  // 틀리면 남은 문제 하나를 다른 물건에 새로 숨긴다
+  let added = false;
+  if (!ok && state.spare.length) {
+    const nq = state.spare.shift();
+    const others = OBJECTS.filter((o) => o.key !== state.objOf[q.id]);
+    const key = others[Math.floor(Math.random() * others.length)].key;
+    state.list.push(nq);
+    state.owner[key].push(nq);
+    state.objOf[nq.id] = key;
+    added = true;
+  }
+  const head = ok ? '⭕ 맞았다! 자물쇠 숫자 하나가 풀렸다.'
+    : added ? '❌ 틀렸다… 대신 다른 물건에 새 쪽지가 숨겨졌다.'
+    : '❌ 틀렸다… 더는 남은 쪽지가 없다.';
+
   fb.className = 'feedback ' + (ok ? 'ok' : 'no');
   fb.innerHTML =
-    `<div class="head">${ok ? '⭕ 맞았다! 자물쇠 숫자 하나가 풀렸다.' : '❌ 틀렸다… 이 숫자는 잠긴 채로 남는다.'}</div>` +
+    `<div class="head">${head}</div>` +
     (ok ? '' : `<div class="ans">내 답: ${esc(given)}</div>`) +
     `<div class="ans">정답: <b>${esc(answerText(q))}</b></div>` +
     `<div class="exp">${esc(q.exp)}</div>`;
 
   const actions = el('div', 'actions');
-  const allDone = Object.keys(state.result).length === state.list.length;
+  const rightNow = Object.values(state.result).filter(Boolean).length;
+  const allDone = rightNow >= PER_ESCAPE || !currentQuestion();
   const next = el('button', 'btn primary', allDone ? '철문 앞으로' : '확인');
   next.onclick = () => {
     closeOverlay();
@@ -1037,16 +1065,18 @@ function finishQuestion(q, given, ok, fb, closeBtn) {
 }
 
 function revealCell(q, ok) {
-  const c = $('cell-' + q.id);
-  c.className = 'cell ' + (ok ? 'open' : 'bad');
-  c.textContent = ok ? String(q.id % 10) : '✕';
+  if (!ok) return;   // 틀리면 칸은 그대로 잠겨 있다
+  const right = Object.values(state.result).filter(Boolean).length;
+  const c = $('cell-' + (right - 1));
+  c.className = 'cell open';
+  c.textContent = String(q.id % 10);
 }
 
 function finishPart() {
   state.finished = true;
-  const total = state.list.length;
+  const total = Object.keys(state.result).length;   // 푼 문제 수
   const right = Object.values(state.result).filter(Boolean).length;
-  const success = right === total;
+  const success = right >= PER_ESCAPE;
 
   if (success) {
     state.padlock.classList.add('unlocked');
@@ -1066,17 +1096,16 @@ function showResult(right, total, success) {
   const wrong = state.list.filter((q) => state.result[q.id] === false);
   const pct = Math.round((right / total) * 100);
   let msg;
-  if (success) msg = '모든 숫자가 맞아떨어졌다. 철문이 삐걱 열리고 복도 끝에서 바깥 공기가 들어온다!';
-  else if (pct >= 70) msg = '거의 다 왔다! 잠긴 숫자 몇 개만 더 풀면 문이 열린다.';
-  else if (pct >= 40) msg = '자물쇠가 반쯤 풀렸다. 해설을 떠올리며 다시 도전해 보자.';
-  else msg = '간수가 순찰을 돈다… 해설을 다시 읽고 처음부터 탈출을 시도하자.';
+  if (success && right === total) msg = '한 번도 틀리지 않았다! 철문이 삐걱 열리고 복도 끝에서 바깥 공기가 들어온다!';
+  else if (success) msg = `${total - right}번 틀렸지만 새 쪽지로 만회했다. 철문이 삐걱 열린다!`;
+  else msg = '쪽지가 다 떨어졌다… 해설을 다시 읽고 처음부터 탈출을 시도하자.';
 
   card.innerHTML = `
     <div class="result">
       <div style="font-size:46px">${success ? '🗝️' : '🔒'}</div>
       <h2 style="color:${success ? 'var(--ok)' : 'var(--bad)'}">${success ? '탈출 성공!' : '탈출 실패'}</h2>
       <div class="big">${right} / ${total}</div>
-      <p class="msg">${esc(state.part.name)} · ${pct}점<br>${msg}</p>
+      <p class="msg">${esc(state.part.name)} · 푼 문제 ${total}개 중 ${right}개 맞힘 (${pct}점)<br>${msg}</p>
       ${wrong.length ? `<div class="wrong-list">틀린 문제<br>${wrong.map((q) =>
         `<div><b>Q${q.id}</b> ${esc(q.q)}<br>→ 정답: ${esc(answerText(q))}</div>`).join('')}</div>` : ''}
       <div class="actions">
@@ -1107,7 +1136,7 @@ function showStart() {
           const n = QUESTIONS.filter((q) => q.part === p.id).length;
           return `<button class="part-btn" data-part="${p.id}">
             <span class="cellno">${p.cell}</span>
-            <span><div class="t">${esc(p.name)}</div><div class="d">쪽지 ${n}장 · 자물쇠 숫자 ${n}개</div></span>
+            <span><div class="t">${esc(p.name)}</div><div class="d">문제 ${n}개 중 무작위 ${PER_ESCAPE}개 · 자물쇠 숫자 ${PER_ESCAPE}개</div></span>
           </button>`;
         }).join('')}
       </div>
