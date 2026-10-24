@@ -1,0 +1,7 @@
+# PyInstaller 로 묶을 때 생기는 것 (용량이 크고 다시 만들 수 있음)
+build/
+dist/
+*.spec
+
+# Python 이 코드를 빨리 읽으려고 만드는 임시 파일
+__pycache__/

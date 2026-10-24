@@ -1,5 +1,7 @@
 # 화면 오른쪽 아래에 앉아 있는 펭귄 데스크톱 펫
 # 실행: week-03 폴더에서 python pet.py
+# 묶기: week-03 폴더에서
+#   python -m PyInstaller --onefile --windowed --name pet --add-data "art/frames;art/frames" pet.py
 import sys
 from pathlib import Path
 
@@ -8,7 +10,8 @@ from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QLabel, QMenu, QWidget
 
-HERE = Path(__file__).parent
+# exe 로 묶으면 그림이 임시 폴더(sys._MEIPASS)에 풀린다
+HERE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 FRAMES = HERE / "art" / "frames"
 SIZE = 150  # 펫 창 크기 (가로세로)
 REST_MS = 300  # 마지막 키를 누르고 이만큼(밀리초) 지나면 ① 으로 돌아감
