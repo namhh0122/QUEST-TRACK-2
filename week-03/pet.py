@@ -3,13 +3,15 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from pynput import keyboard
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QLabel, QMenu, QWidget
 
 HERE = Path(__file__).parent
 FRAMES = HERE / "art" / "frames"
 SIZE = 150  # 펫 창 크기 (가로세로)
+REST_MS = 300  # 마지막 키를 누르고 이만큼(밀리초) 지나면 ① 으로 돌아감
 
 # 그림 순서: ① 두 발 들기, ② 왼발 누름, ③ 오른발 누름, ④ 졸기
 UP, LEFT, RIGHT, SLEEP = range(4)
@@ -17,6 +19,9 @@ NAMES = ["1_up.png", "2_left.png", "3_right.png", "4_sleep.png"]
 
 
 class Pet(QWidget):
+    # 키 듣기는 다른 스레드에서 돌아서, 신호로 펫에게 "눌렸다"는 것만 전한다
+    key_pressed = Signal()
+
     def __init__(self):
         super().__init__()
         # 테두리 없음 + 항상 맨 위
@@ -33,6 +38,18 @@ class Pet(QWidget):
 
         self.drag_offset = None  # 끄는 중일 때, 창 왼쪽 위에서 마우스까지의 거리
         self.move_to_corner()
+
+        # 몇 번 눌렀는지만 센다 (어떤 키인지는 저장하지 않음, 끄면 사라짐)
+        self.key_count = 0
+        self.rest_timer = QTimer(self, singleShot=True, interval=REST_MS)
+        self.rest_timer.timeout.connect(lambda: self.show_frame(UP))
+        self.key_pressed.connect(self.on_key)
+
+    def on_key(self):
+        self.key_count += 1
+        # 홀수 번째는 ② 왼발, 짝수 번째는 ③ 오른발
+        self.show_frame(LEFT if self.key_count % 2 else RIGHT)
+        self.rest_timer.start()
 
     def show_frame(self, index):
         self.picture.setPixmap(self.frames[index])
@@ -66,6 +83,12 @@ def main():
     app = QApplication(sys.argv)
     pet = Pet()
     pet.show()
+
+    # 키를 누를 때마다 신호만 보낸다. 어떤 키인지(_key)는 쓰지 않고 버린다.
+    listener = keyboard.Listener(on_press=lambda _key: pet.key_pressed.emit())
+    listener.start()
+    app.aboutToQuit.connect(listener.stop)
+
     sys.exit(app.exec())
 
 
