@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from pynput import keyboard
-from PySide6.QtCore import QPointF, QRectF, QTimer, Qt, Signal
+from PySide6.QtCore import QPointF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QLabel, QMenu, QWidget
 
@@ -21,36 +21,39 @@ SLEEP_MS = 10_000  # 이만큼(밀리초) 아무 키도 안 누르면 ④ 졸기
 UP, LEFT, RIGHT, SLEEP = range(4)
 NAMES = ["1_up.png", "2_left.png", "3_right.png", "4_sleep.png"]
 
-# 눈 (①②③ 그림에서 같은 자리): (가운데 x, 가운데 y, 가로 반지름, 세로 반지름)
-EYES = [(47.5, 66.0, 8.5, 10.0), (94.0, 66.0, 8.0, 10.0)]
-EYE_SHIFT = 2.0  # 눈이 움직이는 최대 거리 (점)
-EYE_FULL = 200  # 마우스가 이만큼 멀어지면 끝까지 움직임
-FACE = QColor(0xF9, 0xF9, 0xFA)  # 원래 눈 자리를 덮을 얼굴색
+# 눈 (①②③ 그림에서 같은 자리)
+# (가운데 x, 가운데 y, 테두리 안쪽 가로 반지름, 세로 반지름, 원래 반짝이 x, y)
+EYES = [
+    (47.5, 66.0, 5.5, 7.0, 50.0, 62.0),
+    (94.0, 66.0, 5.0, 7.0, 91.2, 62.0),
+]
+GLINT_R = 2.5  # 하얀 반짝이 반지름
+IRIS = QColor(0x0E, 0x4A, 0x9A)  # 원래 반짝이를 지울 눈 파란색
+GLINT = QColor(255, 255, 255)
+EYE_FULL = 200  # 마우스가 이만큼 멀어지면 반짝이가 눈 가장자리까지 감
 EYE_TICK_MS = 33  # 마우스 위치를 읽는 간격 (1초에 약 30번)
 
 
-def eye_path(cx, cy, rx, ry, grow=0.0):
+def eye_inside(cx, cy, rx, ry, grow=0.0):
+    """눈 테두리 안쪽. 반짝이가 이 밖으로 나가지 않게 자르는 데 쓴다."""
     path = QPainterPath()
     path.addEllipse(QPointF(cx, cy), rx + grow, ry + grow)
     return path
 
 
-def split_eyes(frame):
-    """그림을 '눈 없는 얼굴'과 '오려 낸 눈'으로 나눈다."""
-    face = QPixmap(frame)
-    eyes = QPixmap(frame.size())
-    eyes.fill(Qt.transparent)
-    for cx, cy, rx, ry in EYES:
-        p = QPainter(eyes)
-        p.setClipPath(eye_path(cx, cy, rx, ry))
-        p.drawPixmap(0, 0, frame)
-        p.end()
-
-        p = QPainter(face)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.fillPath(eye_path(cx, cy, rx, ry, EYE_SHIFT + 0.5), FACE)
-        p.end()
-    return face, eyes
+def erase_glints(frame):
+    """그림에 원래 있던 하얀 반짝이를 눈 파란색으로 지운다."""
+    plain = QPixmap(frame)
+    p = QPainter(plain)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(IRIS)
+    for cx, cy, rx, ry, gx, gy in EYES:
+        # 반짝이 가장자리의 흐린 점까지 지우려고 조금 넓게 칠한다
+        p.setClipPath(eye_inside(cx, cy, rx, ry, 1.0))
+        p.drawEllipse(QPointF(gx, gy), GLINT_R + 1.5, GLINT_R + 1.5)
+    p.end()
+    return plain
 
 
 class Pet(QWidget):
@@ -66,9 +69,9 @@ class Pet(QWidget):
         self.setFixedSize(SIZE, SIZE)
 
         self.frames = [QPixmap(str(FRAMES / name)) for name in NAMES]
-        # 눈 뜬 그림(①②③)은 얼굴과 눈을 나눠 둔다. ④는 눈을 감아서 그대로 쓴다.
-        self.split = {i: split_eyes(self.frames[i]) for i in (UP, LEFT, RIGHT)}
-        self.eye_offset = QPointF(0, 0)
+        # 눈 뜬 그림(①②③)은 반짝이를 지워 둔다. ④는 눈을 감아서 그대로 쓴다.
+        self.plain = {i: erase_glints(self.frames[i]) for i in (UP, LEFT, RIGHT)}
+        self.look = QPointF(0, 0)  # 마우스 쪽 방향 (길이 0~1)
         self.current = UP
         self.picture = QLabel(self)
         self.picture.setFixedSize(SIZE, SIZE)
@@ -107,15 +110,21 @@ class Pet(QWidget):
 
     def show_frame(self, index):
         self.current = index
-        if index not in self.split:
+        if index not in self.plain:
             self.picture.setPixmap(self.frames[index])
             return
-        # 눈 없는 얼굴 위에 눈을 마우스 쪽으로 옮겨 그린다
-        face, eyes = self.split[index]
-        picture = QPixmap(face)
+        # 반짝이를 지운 눈 안에, 마우스 쪽으로 하얀 반짝이를 그린다
+        picture = QPixmap(self.plain[index])
         p = QPainter(picture)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
-        p.drawPixmap(QRectF(eyes.rect()).translated(self.eye_offset), eyes, QRectF(eyes.rect()))
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        p.setBrush(GLINT)
+        for cx, cy, rx, ry, _gx, _gy in EYES:
+            p.setClipPath(eye_inside(cx, cy, rx, ry))
+            # 반짝이가 눈 테두리 안에 다 들어가는 만큼만 움직인다
+            gx = cx + self.look.x() * (rx - GLINT_R)
+            gy = cy + self.look.y() * (ry - GLINT_R)
+            p.drawEllipse(QPointF(gx, gy), GLINT_R, GLINT_R)
         p.end()
         self.picture.setPixmap(picture)
 
@@ -125,12 +134,12 @@ class Pet(QWidget):
         to_mouse = QPointF(QCursor.pos()) - QPointF(self.mapToGlobal(middle.toPoint()))
         distance = (to_mouse.x() ** 2 + to_mouse.y() ** 2) ** 0.5
         if distance < 1:
-            offset = QPointF(0, 0)
+            look = QPointF(0, 0)
         else:
-            offset = to_mouse / distance * EYE_SHIFT * min(1.0, distance / EYE_FULL)
-        if (offset - self.eye_offset).manhattanLength() < 0.1:
+            look = to_mouse / distance * min(1.0, distance / EYE_FULL)
+        if (look - self.look).manhattanLength() < 0.03:
             return  # 거의 그대로면 다시 그리지 않는다
-        self.eye_offset = offset
+        self.look = look
         self.show_frame(self.current)
 
     def move_to_corner(self):
