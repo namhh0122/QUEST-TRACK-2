@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMenu, QWidget
 # exe 로 묶으면 그림이 임시 폴더(sys._MEIPASS)에 풀린다
 HERE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 FRAMES = HERE / "art" / "frames"
-SIZE = 150  # 펫 창 크기 (가로세로)
+SIZE = 220  # 펫 창 크기 (가로세로). cut.py 의 SIZE 와 같아야 한다
 REST_MS = 300  # 마지막 키를 누르고 이만큼(밀리초) 지나면 ① 으로 돌아감
 SLEEP_MS = 10_000  # 이만큼(밀리초) 아무 키도 안 누르면 ④ 졸기
 
@@ -21,13 +21,17 @@ SLEEP_MS = 10_000  # 이만큼(밀리초) 아무 키도 안 누르면 ④ 졸기
 UP, LEFT, RIGHT, SLEEP = range(4)
 NAMES = ["1_up.png", "2_left.png", "3_right.png", "4_sleep.png"]
 
-# 눈 (①②③ 그림에서 같은 자리)
+# 눈 (①②③ 그림에서 같은 자리). 숫자는 150 크기 그림에서 잰 것이라 SIZE 에 맞춰 늘린다.
 # (가운데 x, 가운데 y, 테두리 안쪽 가로 반지름, 세로 반지름, 원래 반짝이 x, y)
+SCALE = SIZE / 150
 EYES = [
-    (47.5, 66.0, 5.5, 7.0, 50.0, 62.0),
-    (94.0, 66.0, 5.0, 7.0, 91.2, 62.0),
+    tuple(v * SCALE for v in eye)
+    for eye in [
+        (47.5, 66.0, 5.5, 7.0, 50.0, 62.0),
+        (94.0, 66.0, 5.0, 7.0, 91.2, 62.0),
+    ]
 ]
-GLINT_R = 2.5  # 하얀 반짝이 반지름
+GLINT_R = 2.5 * SCALE  # 하얀 반짝이 반지름
 IRIS = QColor(0x0E, 0x4A, 0x9A)  # 원래 반짝이를 지울 눈 파란색
 GLINT = QColor(255, 255, 255)
 EYE_FULL = 200  # 마우스가 이만큼 멀어지면 반짝이가 눈 가장자리까지 감
@@ -50,8 +54,8 @@ def erase_glints(frame):
     p.setBrush(IRIS)
     for cx, cy, rx, ry, gx, gy in EYES:
         # 반짝이 가장자리의 흐린 점까지 지우려고 조금 넓게 칠한다
-        p.setClipPath(eye_inside(cx, cy, rx, ry, 1.0))
-        p.drawEllipse(QPointF(gx, gy), GLINT_R + 1.5, GLINT_R + 1.5)
+        p.setClipPath(eye_inside(cx, cy, rx, ry, 1.0 * SCALE))
+        p.drawEllipse(QPointF(gx, gy), GLINT_R + 1.5 * SCALE, GLINT_R + 1.5 * SCALE)
     p.end()
     return plain
 

@@ -7,7 +7,7 @@ from PIL import Image
 HERE = Path(__file__).parent
 SHEET = HERE / "art" / "sheet.png"
 OUT = HERE / "art" / "frames"
-SIZE = 150  # 펫 창 크기 (가로세로)
+SIZE = 220  # 펫 창 크기 (가로세로). pet.py 의 SIZE 와 같아야 한다
 MARGIN = 6  # 그림 둘레에 남길 여백 (원래 그림 기준)
 FAINT = 8   # 이보다 흐린 점은 완전히 투명하게 (배경의 희미한 얼룩 지우기)
 
