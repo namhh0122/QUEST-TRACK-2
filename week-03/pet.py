@@ -12,6 +12,7 @@ HERE = Path(__file__).parent
 FRAMES = HERE / "art" / "frames"
 SIZE = 150  # 펫 창 크기 (가로세로)
 REST_MS = 300  # 마지막 키를 누르고 이만큼(밀리초) 지나면 ① 으로 돌아감
+SLEEP_MS = 10_000  # 이만큼(밀리초) 아무 키도 안 누르면 ④ 졸기
 
 # 그림 순서: ① 두 발 들기, ② 왼발 누름, ③ 오른발 누름, ④ 졸기
 UP, LEFT, RIGHT, SLEEP = range(4)
@@ -41,15 +42,25 @@ class Pet(QWidget):
 
         # 몇 번 눌렀는지만 센다 (어떤 키인지는 저장하지 않음, 끄면 사라짐)
         self.key_count = 0
+        self.left_next = True  # 다음 키에 ② 왼발을 낼 차례인지
         self.rest_timer = QTimer(self, singleShot=True, interval=REST_MS)
         self.rest_timer.timeout.connect(lambda: self.show_frame(UP))
+        self.sleep_timer = QTimer(self, singleShot=True, interval=SLEEP_MS)
+        self.sleep_timer.timeout.connect(self.fall_asleep)
+        self.sleep_timer.start()
         self.key_pressed.connect(self.on_key)
 
     def on_key(self):
         self.key_count += 1
-        # 홀수 번째는 ② 왼발, 짝수 번째는 ③ 오른발
-        self.show_frame(LEFT if self.key_count % 2 else RIGHT)
+        # ② 왼발과 ③ 오른발을 번갈아
+        self.show_frame(LEFT if self.left_next else RIGHT)
+        self.left_next = not self.left_next
         self.rest_timer.start()
+        self.sleep_timer.start()  # 키를 누를 때마다 졸기 시계를 처음부터 다시
+
+    def fall_asleep(self):
+        self.show_frame(SLEEP)
+        self.left_next = True  # 깨어나면 ② 부터
 
     def show_frame(self, index):
         self.picture.setPixmap(self.frames[index])
