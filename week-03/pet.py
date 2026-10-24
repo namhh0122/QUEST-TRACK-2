@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QMenu, QWidget
 
 HERE = Path(__file__).parent
 FRAMES = HERE / "art" / "frames"
@@ -31,6 +31,7 @@ class Pet(QWidget):
         self.picture.setScaledContents(True)
         self.show_frame(UP)
 
+        self.drag_offset = None  # 끄는 중일 때, 창 왼쪽 위에서 마우스까지의 거리
         self.move_to_corner()
 
     def show_frame(self, index):
@@ -40,6 +41,25 @@ class Pet(QWidget):
         # 작업표시줄을 뺀 화면 영역의 오른쪽 아래에 붙인다
         area = self.screen().availableGeometry()
         self.move(area.right() - SIZE + 1, area.bottom() - SIZE + 1)
+
+    # 왼쪽 버튼으로 끌어서 옮기기
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_offset = event.globalPosition().toPoint() - self.pos()
+
+    def mouseMoveEvent(self, event):
+        if self.drag_offset is not None:
+            self.move(event.globalPosition().toPoint() - self.drag_offset)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_offset = None
+
+    # 오른쪽 클릭 메뉴
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.addAction("끄기", QApplication.quit)
+        menu.exec(event.globalPos())
 
 
 def main():
