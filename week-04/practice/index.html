@@ -127,9 +127,25 @@ const frog = { x: 40, y: GROUND_Y - FRAME, vx: 0, vy: 0, onGround: true, flip: f
 let berries = [];
 let score = 0;
 
+const BERRY_COUNT = 15;
+const BERRY_GAP = 24; // 딸기끼리 이만큼은 떨어지게
+// 2단 점프로 개구리 머리가 닿는 높이가 땅 위 약 100px 이라, 딸기는 그 안에서만 나와요.
+const BERRY_TOP = 10;
+const BERRY_BOTTOM = GROUND_Y - FRAME;
+
+function random(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+// 딸기를 화면 곳곳에 무작위로 뿌려요. 새로 시작할 때마다, 다 모았을 때마다 위치가 바뀌어요.
 function spawnBerries() {
   berries = [];
-  for (let i = 0; i < 5; i++) berries.push({ x: 70 + i * 45, y: GROUND_Y - FRAME - 10 - (i % 2) * 30 });
+  for (let tries = 0; berries.length < BERRY_COUNT && tries < 1000; tries++) {
+    const b = { x: random(0, W - FRAME), y: random(BERRY_TOP, BERRY_BOTTOM) };
+    const tooClose = p => Math.hypot(p.x - b.x, p.y - b.y) < BERRY_GAP;
+    if (berries.some(tooClose) || tooClose(frog)) continue; // 겹치거나 개구리 바로 위면 다시 뽑기
+    berries.push(b);
+  }
 }
 spawnBerries();
 
