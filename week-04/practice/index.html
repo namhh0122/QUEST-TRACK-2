@@ -213,6 +213,13 @@ function update(dt) {
       }
     }
   }
+  // 바닥 땅은 무슨 일이 있어도 뚫고 내려가지 않게 해요.
+  if (feet > GROUND_Y) {
+    frog.y = GROUND_Y - FRAME;
+    frog.vy = 0;
+    frog.onGround = true;
+    frog.jumps = 0;
+  }
 
   if (!frog.onGround) setAnim(frog.vy > 0 ? 'fall' : frog.jumps === 2 ? 'double-jump' : 'jump');
   else setAnim(frog.vx ? 'run' : 'idle');
@@ -256,7 +263,8 @@ function draw() {
 
 let last = performance.now();
 function loop(now) {
-  const dt = Math.min((now - last) / 1000, 0.05);
+  // 첫 프레임은 now 가 last 보다 앞설 수 있어서, 지난 시간이 마이너스가 되지 않게 0 아래는 0으로 둬요.
+  const dt = Math.max(0, Math.min((now - last) / 1000, 0.05));
   last = now;
   clock += dt;
   update(dt);
