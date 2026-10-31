@@ -163,7 +163,8 @@ function spawnBerries() {
     const y = Math.max(BERRY_TOP, s.y - FRAME - random(0, BERRY_RISE));
     const b = { x, y };
     const tooClose = p => Math.hypot(p.x - b.x, p.y - b.y) < BERRY_GAP;
-    if (berries.some(tooClose) || tooClose(frog) || touchesPlatform(b)) continue; // 겹치면 다시 뽑기
+    const onScore = b.x < 110 && b.y < 30; // 왼쪽 위 점수 자리
+    if (berries.some(tooClose) || tooClose(frog) || touchesPlatform(b) || onScore) continue; // 겹치면 다시 뽑기
     berries.push(b);
   }
 }
@@ -256,9 +257,55 @@ function draw() {
   for (const b of berries) drawAnim(ANIMS.strawberry.spin, clock, b.x, b.y, false);
   drawAnim(ANIMS.frog[frog.anim], frog.animTime, frog.x, frog.y, frog.flip);
 
-  ctx.fillStyle = '#fff';
-  ctx.font = '14px sans-serif';
-  ctx.fillText('딸기 ' + score, 8, 18);
+  // 점수: 딸기 그림 + 픽셀 숫자
+  drawAnim(ANIMS.strawberry.spin, 0, 2, 0, false);
+  drawPixelText('x' + score, 32, 9);
+}
+
+// 점수용 픽셀 글자. 한 글자는 가로 3칸 × 세로 5칸이고, 1 이 칠할 칸이에요.
+const PIXEL_FONT = {
+  '0': ['111', '101', '101', '101', '111'],
+  '1': ['010', '110', '010', '010', '111'],
+  '2': ['111', '001', '111', '100', '111'],
+  '3': ['111', '001', '111', '001', '111'],
+  '4': ['101', '101', '111', '001', '001'],
+  '5': ['111', '100', '111', '001', '111'],
+  '6': ['111', '100', '111', '101', '111'],
+  '7': ['111', '001', '010', '010', '010'],
+  '8': ['111', '101', '111', '101', '111'],
+  '9': ['111', '101', '111', '001', '111'],
+  'x': ['000', '101', '010', '101', '000'],
+};
+const PIXEL = 3; // 글자 한 칸 크기
+
+// 픽셀 글자를 진한 테두리 → 흰 글자 순서로 작은 캔버스에 그린 뒤, 한 번에 화면에 옮겨요.
+// 칸마다 바로 화면에 그리면 늘린 화면에서 칸 사이에 가는 줄이 생겨서 이렇게 해요.
+const textCanvas = document.createElement('canvas');
+const textCtx = textCanvas.getContext('2d');
+let lastText = '';
+
+function drawPixelText(text, x, y) {
+  if (text !== lastText) {
+    lastText = text;
+    textCanvas.width = text.length * 4 * PIXEL + 2;
+    textCanvas.height = 5 * PIXEL + 2;
+    for (const [color, grow] of [['#2b1d2e', 1], ['#fff', 0]]) {
+      textCtx.fillStyle = color;
+      [...text].forEach((ch, i) => {
+        const rows = PIXEL_FONT[ch];
+        if (!rows) return;
+        rows.forEach((row, r) => {
+          for (let c = 0; c < 3; c++) {
+            if (row[c] !== '1') continue;
+            const px = 1 + i * 4 * PIXEL + c * PIXEL;
+            const py = 1 + r * PIXEL;
+            textCtx.fillRect(px - grow, py - grow, PIXEL + grow * 2, PIXEL + grow * 2);
+          }
+        });
+      });
+    }
+  }
+  ctx.drawImage(textCanvas, x - 1, y - 1);
 }
 
 let last = performance.now();
