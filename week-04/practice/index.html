@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>연습 게임 · 딸기 모으기</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  body { display: flex; justify-content: center; align-items: center; font-family: sans-serif; }
+  canvas { image-rendering: pixelated; }
+  p { position: fixed; bottom: 8px; left: 0; right: 0; margin: 0; text-align: center; color: #fff; text-shadow: 0 1px 2px #000; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<p>← → 이동 · 스페이스 점프 · 딸기를 모아 봐 (처음 키를 누르면 음악이 나와요)</p>
+<script>
+// ===== 에셋 불러오기 =====
+// 그림은 assets/images, 소리는 assets/sounds 에 있어요.
+const IMG = 'assets/images/';
+const SND = 'assets/sounds/';
+
+// 애니메이션 정보 (drop.json 에서 옮김). 모든 시트는 32×32 프레임이 가로 한 줄로 이어져 있어요.
+const ANIMS = {
+  frog: {
+    idle:          { file: 'ninja-frog_idle.png',        frames: 11, fps: 20, loop: true },
+    run:           { file: 'ninja-frog_run.png',         frames: 12, fps: 20, loop: true },
+    jump:          { file: 'ninja-frog_jump.png',        frames: 1,  fps: 20, loop: true },
+    'double-jump': { file: 'ninja-frog_double-jump.png', frames: 6,  fps: 20, loop: true },
+    fall:          { file: 'ninja-frog_fall.png',        frames: 1,  fps: 10, loop: true },
+    'wall-jump':   { file: 'ninja-frog_wall-jump.png',   frames: 5,  fps: 20, loop: true },
+    hit:           { file: 'ninja-frog_hit.png',         frames: 7,  fps: 20, loop: false },
+  },
+  strawberry: {
+    spin:          { file: 'strawberry_spin.png',        frames: 17, fps: 12, loop: true },
+  },
+};
+const FRAME = 32; // 프레임 한 칸 크기
+const TILE = 16;  // 지형 타일 한 칸 크기
+
+function loadImage(file) {
+  const img = new Image();
+  img.src = IMG + file;
+  return img;
+}
+
+// 캐릭터·아이템 시트
+for (const group of Object.values(ANIMS)) {
+  for (const anim of Object.values(group)) anim.img = loadImage(anim.file);
+}
+const tilesetImg = loadImage('terrain-tileset.png');           // 352×176, 16×16 타일
+const backgroundImg = loadImage('blue-pattern-background.png'); // 64×64, 바둑판처럼 깔기
+
+// 소리
+const sounds = {
+  jump: new Audio(SND + 'jump.wav'),
+  coin: new Audio(SND + 'coin.wav'),
+};
+const bgm = new Audio(SND + 'stage-1.ogg');
+bgm.loop = true;   // 끊김 없이 반복
+bgm.volume = 0.5;
+
+function playSound(name) {
+  const s = sounds[name].cloneNode(); // 겹쳐서 여러 번 나도록 복사해서 재생
+  s.play();
+}
+
+// 브라우저는 사용자가 키를 누르거나 클릭하기 전에는 소리를 못 내게 해서, 처음 누를 때 음악을 켜요.
+function startMusic() {
+  if (bgm.paused) bgm.play();
+}
+addEventListener('keydown', startMusic);
+addEventListener('pointerdown', startMusic);
+
+// ===== 그리기 도구 =====
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 320, H = 180; // 게임 세상 크기. 위치·속도는 모두 이 크기 기준이에요.
+
+// 창 크기에 맞춰 게임 세상을 비율대로 늘려서 그려요.
+// 그림도 같은 배율로 커지고, 창 비율이 다르면 남는 곳은 검게 둬요.
+// 캔버스를 실제 화면 크기로 만들고 그릴 때 늘리기 때문에, 글자는 또렷하게 나와요.
+function fitToWindow() {
+  const scale = Math.min(innerWidth / W, innerHeight / H);
+  const dpr = devicePixelRatio || 1;
+  canvas.style.width = W * scale + 'px';
+  canvas.style.height = H * scale + 'px';
+  canvas.width = Math.round(W * scale * dpr);
+  canvas.height = Math.round(H * scale * dpr);
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false; // 픽셀 아트가 흐려지지 않게 (최근접 필터). 캔버스 크기를 바꾸면 풀려서 다시 켜요.
+}
+addEventListener('resize', fitToWindow);
+fitToWindow();
+
+// 애니메이션의 지금 프레임 그리기. time 은 이 애니메이션을 시작한 뒤 지난 초.
+function drawAnim(anim, time, x, y, flip) {
+  let frame = Math.floor(time * anim.fps);
+  frame = anim.loop ? frame % anim.frames : Math.min(frame, anim.frames - 1);
+  ctx.save();
+  if (flip) {
+    ctx.translate(x + FRAME, y);
+    ctx.scale(-1, 1);
+    x = 0; y = 0;
+  }
+  ctx.drawImage(anim.img, frame * FRAME, 0, FRAME, FRAME, x, y, FRAME, FRAME);
+  ctx.restore();
+}
+
+// 타일셋의 (열, 줄) 칸 하나 그리기
+function drawTile(col, row, x, y) {
+  ctx.drawImage(tilesetImg, col * TILE, row * TILE, TILE, TILE, x, y, TILE, TILE);
+}
+
+function drawBackground() {
+  for (let y = 0; y < H; y += 64)
+    for (let x = 0; x < W; x += 64)
+      ctx.drawImage(backgroundImg, x, y);
+}
+
+// ===== 게임 =====
+const GROUND_Y = H - TILE * 2; // 땅 윗면
+const GRAVITY = 900;
+const SPEED = 90;
+const JUMP = 300;
+
+const frog = { x: 40, y: GROUND_Y - FRAME, vx: 0, vy: 0, onGround: true, flip: false, anim: 'idle', animTime: 0, jumps: 0 };
+let berries = [];
+let score = 0;
+
+function spawnBerries() {
+  berries = [];
+  for (let i = 0; i < 5; i++) berries.push({ x: 70 + i * 45, y: GROUND_Y - FRAME - 10 - (i % 2) * 30 });
+}
+spawnBerries();
+
+const keys = {};
+addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.repeat && frog.jumps < 2) {
+    frog.vy = -JUMP;
+    frog.onGround = false;
+    frog.jumps++;
+    playSound('jump');
+  }
+  keys[e.code] = true;
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+// 키를 누른 채 다른 창으로 가면 손을 떼도 keyup 이 안 와서 계속 달려요. 그래서 창을 떠나면 키를 모두 놓아요.
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+function setAnim(name) {
+  if (frog.anim !== name) { frog.anim = name; frog.animTime = 0; }
+}
+
+function update(dt) {
+  frog.vx = (keys.ArrowRight ? SPEED : 0) - (keys.ArrowLeft ? SPEED : 0);
+  if (frog.vx) frog.flip = frog.vx < 0;
+  frog.x = Math.max(0, Math.min(W - FRAME, frog.x + frog.vx * dt));
+
+  frog.vy += GRAVITY * dt;
+  frog.y += frog.vy * dt;
+  if (frog.y >= GROUND_Y - FRAME) {
+    frog.y = GROUND_Y - FRAME;
+    frog.vy = 0;
+    frog.onGround = true;
+    frog.jumps = 0;
+  }
+
+  if (!frog.onGround) setAnim(frog.vy > 0 ? 'fall' : frog.jumps === 2 ? 'double-jump' : 'jump');
+  else setAnim(frog.vx ? 'run' : 'idle');
+  frog.animTime += dt;
+
+  // 딸기 먹기
+  berries = berries.filter(b => {
+    const hit = Math.abs(b.x - frog.x) < 18 && Math.abs(b.y - frog.y) < 18;
+    if (hit) { score++; playSound('coin'); }
+    return !hit;
+  });
+  if (berries.length === 0) spawnBerries();
+}
+
+let clock = 0;
+function draw() {
+  drawBackground();
+
+  // 풀 덮인 땅 (타일셋 왼쪽 위에서 7번째 열부터 3칸)
+  for (let x = 0; x < W; x += TILE) {
+    const col = x === 0 ? 6 : x + TILE >= W ? 8 : 7;
+    drawTile(col, 0, x, GROUND_Y);
+    drawTile(col, 1, x, GROUND_Y + TILE);
+  }
+
+  for (const b of berries) drawAnim(ANIMS.strawberry.spin, clock, b.x, b.y, false);
+  drawAnim(ANIMS.frog[frog.anim], frog.animTime, frog.x, frog.y, frog.flip);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '10px sans-serif';
+  ctx.fillText('딸기 ' + score, 6, 14);
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  clock += dt;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
