@@ -45,8 +45,8 @@ const TEST_SCRIPT = `<script>
   function collectAll() {
     while (batteries.length) {
       safe();
-      batteries[0].x = alien.x + ALIEN / 2 - 8;
-      batteries[0].y = alien.y + ALIEN / 2 - 8;
+      batteries[0].x = alien.x + ALIEN / 2 - BATTERY / 2;
+      batteries[0].y = alien.y + ALIEN / 2 - BATTERY / 2;
       step(1 / 60);
     }
   }
@@ -74,7 +74,7 @@ const TEST_SCRIPT = `<script>
   // 2. 1스테이지 배터리
   check('1스테이지 배터리 3개', stage === 1 && batteries.length === 3, '화면에 ' + batteries.length + '개');
   safe();
-  batteries[0].x = alien.x + ALIEN / 2 - 8; batteries[0].y = alien.y + ALIEN / 2 - 8;
+  batteries[0].x = alien.x + ALIEN / 2 - BATTERY / 2; batteries[0].y = alien.y + ALIEN / 2 - BATTERY / 2;
   step(1 / 60);
   check('배터리를 먹으면 오른쪽 위 숫자가 1 오름', got === 1, got + '/' + batteriesFor(stage));
 

@@ -171,6 +171,7 @@ function startStage(n) {
   spawnBatteries(batteriesFor(n));
 }
 
+const BATTERY = 32;      // 배터리 그림(16×16)을 2배로 키워서 그려요
 const BATTERY_RISE = 70; // 배터리는 밟을 수 있는 땅 위로 이 높이 안에서만 나와요 (점프로 닿는 높이)
 
 function random(min, max) {
@@ -184,12 +185,12 @@ function spawnBatteries(count) {
   for (let tries = 0; batteries.length < count && tries < 2000; tries++) {
     let pick = random(0, total);
     const s = SURFACES.find(s => (pick -= s.w) < 0) || SURFACES[0];
-    const x = random(s.x + 4, s.x + s.w - 20);
-    const y = Math.max(30, s.y - 20 - random(0, BATTERY_RISE));
+    const x = random(s.x + 4, s.x + s.w - BATTERY - 4);
+    const y = Math.max(30, s.y - BATTERY - 4 - random(0, BATTERY_RISE));
     const b = { x, y, phase: random(0, 6) };
-    const tooClose = p => Math.hypot(p.x - b.x, p.y - b.y) < 36;
+    const tooClose = p => Math.hypot(p.x - b.x, p.y - b.y) < 48;
     const nearAlien = Math.hypot(alien.x + ALIEN / 2 - b.x, alien.y + ALIEN / 2 - b.y) < 60;
-    const inPlatform = PLATFORMS.some(p => b.x + 16 > p.x && b.x < p.x + p.w && b.y + 16 > p.y - 4 && b.y < p.y + TILE);
+    const inPlatform = PLATFORMS.some(p => b.x + BATTERY > p.x && b.x < p.x + p.w && b.y + BATTERY > p.y - 4 && b.y < p.y + TILE);
     const onHud = b.y < 40 && (b.x < 110 || b.x > W - 120 || Math.abs(b.x - W / 2) < 70); // 위쪽 글자 자리
     if (batteries.some(tooClose) || nearAlien || inPlatform || onHud) continue; // 겹치면 다시 뽑기
     batteries.push(b);
@@ -362,7 +363,7 @@ function update(dt) {
   // 배터리 먹기
   const a = alienBox();
   batteries = batteries.filter(b => {
-    const hit = overlap(a, { x: b.x + 2, y: b.y + 1, w: 12, h: 14 });
+    const hit = overlap(a, { x: b.x + 4, y: b.y + 2, w: BATTERY - 8, h: BATTERY - 4 });
     if (hit) { got++; playSound('portal'); }
     return !hit;
   });
@@ -388,7 +389,7 @@ function draw() {
   }
 
   // 배터리는 위아래로 살짝 둥실둥실
-  for (const b of batteries) ctx.drawImage(powerUpImg, Math.round(b.x), Math.round(b.y + Math.sin(clock * 3 + b.phase) * 2));
+  for (const b of batteries) ctx.drawImage(powerUpImg, Math.round(b.x), Math.round(b.y + Math.sin(clock * 3 + b.phase) * 2), BATTERY, BATTERY);
 
   // 쓰러진 티라노는 마지막 1초 동안 깜빡이다 사라져요
   const fading = rex.state === 'death' && rex.time > 2 && Math.floor(clock * 10) % 2;
