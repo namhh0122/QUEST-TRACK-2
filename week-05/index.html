@@ -640,8 +640,7 @@ function drawRex() {
     // 머리 위 "!" : 공격이 온다는 예고. 준비 그림은 머리를 뒤로 젖혀서 머리 가운데가 24칸쯤이에요.
     // 하늘에서는 머리 위가 화면 밖이라 머리 옆에 띄워요.
     const hx = rex.x + (rex.dir > 0 ? 24 : 80 - 24) * REX_SIZE;
-    const color = rex.attack === 'charge' && phase === 'ground' ? '#ff3b3b'
-                : rex.attack === 'claw' && phase === 'ground' ? '#ffe14a' : '#ff8a1f';
+    const color = '#ff3b3b';
     const by = phase === 'ground' ? rex.y - 12 : rex.y + 30;
     const bx = phase === 'ground' ? hx : hx - rex.dir * 40;
     drawBang(Math.round(bx), Math.round(by), color);
@@ -657,6 +656,42 @@ function drawRex() {
       for (let i = 0; i < 3; i++) {
         const t = (clock * 3 + i / 3) % 1;
         ctx.fillRect(Math.round(fx - rex.dir * t * 30), Math.round(GROUND_Y - 4 - t * 12), 4, 4);
+      }
+    }
+  }
+}
+// 공격 예고: 티라노가 준비하는 동안, 공격이 닿을 자리를 빨갛게 깜빡여요.
+// 할퀴기는 티라노 앞, 불 뿜기는 불꽃이 지나갈 땅 위 줄, 돌진은 벽까지 가는 길, 하늘에서는 불꽃이 날아갈 길.
+function warningAreas() {
+  if (rex.state !== 'windup') return [];
+  if (phase === 'sky') return [];
+  const front = rex.dir > 0 ? rex.x + 62 * REX_SIZE : rex.x + 18 * REX_SIZE; // 몸통 앞쪽 끝
+  const toEdge = (y, h) => rex.dir > 0 ? { x: front, y, w: W - front, h } : { x: 0, y, w: front, h };
+  if (rex.attack === 'claw') return [clawBox()];
+  if (rex.attack === 'fire') return [toEdge(GROUND_Y - 32, 24)];
+  if (rex.attack === 'charge') return [toEdge(GROUND_Y - 40, 40)];
+  return [];
+}
+function drawWarning() {
+  if (rex.state !== 'windup') return;
+  const blink = Math.floor(clock * 8) % 2;
+  ctx.fillStyle = blink ? 'rgba(255, 40, 40, 0.4)' : 'rgba(255, 40, 40, 0.22)';
+  for (const a of warningAreas()) {
+    ctx.fillRect(Math.round(a.x), Math.round(a.y), Math.round(a.w), Math.round(a.h));
+    ctx.fillStyle = '#ff3b3b';
+    ctx.fillRect(Math.round(a.x), Math.round(a.y), Math.round(a.w), 2);
+    ctx.fillRect(Math.round(a.x), Math.round(a.y + a.h - 2), Math.round(a.w), 2);
+    ctx.fillStyle = blink ? 'rgba(255, 40, 40, 0.4)' : 'rgba(255, 40, 40, 0.22)';
+  }
+  if (phase === 'sky') {
+    // 하늘: 지금 우주선 쪽으로 쏠 길을 빨간 점선으로 (세 갈래 차례면 세 줄)
+    const m = rexMouth();
+    const base = Math.atan2(ship.y + SHIP_H / 2 - m.y, ship.x + SHIP_W / 2 - m.x);
+    const spread = rex.volleys % 2 === 0 ? [0] : [-0.3, 0, 0.3];
+    ctx.fillStyle = blink ? '#ff3b3b' : 'rgba(255, 59, 59, 0.5)';
+    for (const a of spread) {
+      for (let d = 30; d < 420; d += 16) {
+        ctx.fillRect(Math.round(m.x + Math.cos(base + a) * d) - 2, Math.round(m.y + Math.sin(base + a) * d) - 2, 4, 4);
       }
     }
   }
@@ -742,6 +777,7 @@ function draw() {
       drawTile(col, 1, x, GROUND_Y + TILE + shift);
     }
   }
+  drawWarning();
   drawRex();
   drawShip();
   drawAlien();

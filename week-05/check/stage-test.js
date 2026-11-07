@@ -11,7 +11,7 @@
 //   4. 티라노 공격 3가지(할퀴기·불 뿜기·돌진): 예고("!") 동안은 안 맞고, 공격이 오면 목숨이 줄어드는지
 //   5. 체력 절반 → 하늘로(땅이 사라지고 우주선) → 5번 피하면 반격하기 버튼 → 반격하면 체력 5분의 1 깎이고 땅으로
 //   6. 체력 0 → 티라노를 물리쳤어요
-// 사진 두 장을 check/shots 에 찍어요: 땅에서 칼 휘두르기(#ground), 하늘에서 불꽃 피하기(#sky)
+// 사진 세 장을 check/shots 에 찍어요: 땅에서 칼 휘두르기(#ground), 하늘에서 불꽃 피하기(#sky), 돌진 빨간 예고(#warn)
 //
 // check/shots 와 check/tmp 는 커밋하지 않아요 (.gitignore).
 
@@ -119,6 +119,23 @@ const TEST_SCRIPT = `<script>
   check('불꽃에 맞으면 터지는 그림이 나옴', fire.boomed, '');
   const charge = attackTest('charge', 60);
   check('돌진: 예고 동안은 안 맞고, 달려와서 목숨 -1', charge.safeInWindup && charge.hit, '예고 ' + ATTACKS.charge.windup + '초');
+  // 공격 예고: 준비하는 동안 빨간 표시가 있고, 표시 안에 서 있으면 실제로 맞아요
+  for (const [kind, alienX] of [['claw', 300 - 40], ['fire', 60], ['charge', 60]]) {
+    fresh();
+    rex.x = 300; rex.dir = -1; alien.x = alienX;
+    rex.attack = kind; rex.wait = ATTACKS[kind].windup; rex.state = 'windup'; rex.time = 0;
+    const areas = warningAreas();
+    const inside = areas.some(a => overlap(alienBox(), a));
+    step(ATTACKS[kind].windup + 0.02);
+    const gone = warningAreas().length === 0;
+    step(2);
+    check('빨간 예고 표시: ' + kind + ' (준비 중에만 보이고, 그 안에 있으면 맞음)', areas.length > 0 && inside && gone && lives < LIVES, '표시 ' + areas.length + '개, 외계인이 표시 안 ' + inside + ', 목숨 ' + lives);
+  }
+  fresh();
+  rex.x = 300; rex.dir = -1; alien.x = 300 - 40;
+  rex.attack = 'claw'; rex.wait = ATTACKS.claw.windup; rex.state = 'windup';
+  alien.x = 40;
+  check('할퀴기 예고 표시 밖에 있으면 안 맞음', !warningAreas().some(a => overlap(alienBox(), a)) && (step(1), lives === LIVES), '목숨 ' + lives);
   fresh();
   rex.x = 300; rex.state = 'walk'; rex.think = 999;
   alien.x = rex.x + REX_W / 2 - ALIEN / 2;
@@ -166,7 +183,7 @@ const TEST_SCRIPT = `<script>
   step(2.5);
   check('체력이 0 이 되면 "티라노를 물리쳤어요"', win, 'win=' + win);
 
-  // 사진용 장면. 주소 뒤 #ground / #sky 로 골라요. 사진 찍을 때까지 그대로 있게 게임을 멈춰요.
+  // 사진용 장면. 주소 뒤 #ground / #sky / #warn 으로 골라요. 사진 찍을 때까지 그대로 있게 게임을 멈춰요.
   resetGame();
   if (location.hash === '#sky') {
     rex.hp = 50; startRising(); step(RISE_TIME + 0.1);
@@ -176,6 +193,10 @@ const TEST_SCRIPT = `<script>
     fireballs.push({ x: 300, y: 200, vx: -120, vy: 200, floor: Infinity, time: 0 });
     fireballs.push({ x: 380, y: 160, vx: 0, vy: 230, floor: Infinity, time: 0.2 });
     fireballs.push({ x: 460, y: 200, vx: 120, vy: 200, floor: Infinity, time: 0.1 });
+  } else if (location.hash === '#warn') {
+    rex.x = 380; rex.dir = -1;
+    rex.attack = 'charge'; rex.state = 'windup'; rex.wait = 999;
+    alien.x = 140;
   } else {
     rex.hp = 76; rex.x = 360; rex.dir = -1; rex.state = 'idle'; rex.wait = 999;
     alien.x = rex.x + 18 * REX_SIZE - ALIEN - 10; aimX = rex.x + 100; aimY = 260;
@@ -222,7 +243,7 @@ function main() {
   const dom = runBrowser(browser, ['--dump-dom', pathToFileUrl(file)]);
   const m = dom.match(/<pre id="__stage"[^>]*>([\s\S]*?)<\/pre>/);
   const shots = [];
-  for (const scene of ['ground', 'sky']) {
+  for (const scene of ['ground', 'sky', 'warn']) {
     const shot = path.join(SHOTS_DIR, `my-game-${scene}.png`);
     runBrowser(browser, [`--screenshot=${shot}`, pathToFileUrl(file) + '#' + scene]);
     shots.push(shot);
