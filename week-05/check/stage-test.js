@@ -5,12 +5,13 @@
 //
 // 하는 일: 화면 없는 Chrome(또는 Edge)으로 week-05/index.html 을 열고,
 // 게임 안의 값을 직접 바꿔 가며 아래를 차례로 시험해요. 사람이 끝까지 플레이하지 않아도 돼요.
-//   1. A·D 이동, 크기 (외계인 48px, 티라노 몸통은 외계인의 2배), 배터리·떠 있는 땅이 없는지
+//   1. A·D 이동, 크기, 목숨 5개, 배터리·떠 있는 땅·스테이지가 없는지
 //   2. Q 구르기: 빨리 움직이고, 구르는 동안 안 맞고, 끝나자마자 또 구를 수 있는지
-//   3. 마우스 왼쪽 클릭: 총알이 마우스 쪽으로 나가서 티라노 체력이 줄어드는지
+//   3. 마우스 왼쪽 클릭 = 칼: 가로 베기·올려 베기를 번갈아 쓰고, 티라노 체력이 줄어드는지
 //   4. 티라노 공격 3가지(할퀴기·불 뿜기·돌진): 예고("!") 동안은 안 맞고, 공격이 오면 목숨이 줄어드는지
-//   5. 티라노를 쓰러뜨리면 우주선 → 2스테이지, 10스테이지를 마치면 "모든 스테이지 클리어"
-// 마지막에 "티라노가 불 뿜기를 준비하는" 화면 사진을 check/shots 에 찍어요.
+//   5. 체력 절반 → 하늘로(땅이 사라지고 우주선) → 5번 피하면 반격하기 버튼 → 반격하면 체력 5분의 1 깎이고 땅으로
+//   6. 체력 0 → 티라노를 물리쳤어요
+// 사진 두 장을 check/shots 에 찍어요: 땅에서 칼 휘두르기(#ground), 하늘에서 불꽃 피하기(#sky)
 //
 // check/shots 와 check/tmp 는 커밋하지 않아요 (.gitignore).
 
@@ -31,7 +32,7 @@ const BROWSERS = [
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
 ];
 
-// 게임 스크립트 뒤에 붙여서 실행하는 시험. 게임의 let 변수(alien, rex, ship, bullets, stage ...)를 그대로 읽고 바꿔요.
+// 게임 스크립트 뒤에 붙여서 실행하는 시험. 게임의 let 변수(alien, rex, ship, phase, dodged ...)를 그대로 읽고 바꿔요.
 const TEST_SCRIPT = `<script>
 (function () {
   const results = [];
@@ -46,6 +47,13 @@ const TEST_SCRIPT = `<script>
   // 화면 없는 브라우저는 화면 갱신이 느려서, 게임을 1/60초씩 직접 돌려요.
   const step = seconds => { for (let t = 0; t < seconds; t += 1 / 60) update(1 / 60); };
   function fresh() { resetGame(); freezeRex(); alien.hurt = 0; }
+  // 외계인을 티라노 바로 앞에 세우고 티라노 쪽을 클릭해서 한 번 베요
+  function slashRex() {
+    alien.x = rex.x + 18 * REX_SIZE - ALIEN - 10; alien.y = GROUND_Y - ALIEN; alien.hurt = 999;
+    alien.swingWait = 0;
+    click(rex.x + REX_W / 2, GROUND_Y - 30);
+    step(0.3);
+  }
 
   // 1. 이동·크기·없앤 것
   fresh();
@@ -55,10 +63,11 @@ const TEST_SCRIPT = `<script>
   const x1 = alien.x;
   key('keydown', 'KeyA'); step(0.2); key('keyup', 'KeyA');
   check('A 키로 왼쪽 이동', alien.x < x1 - 10, Math.round(x1) + ' → ' + Math.round(alien.x));
-  check('외계인은 원래(24px)의 2배', ALIEN === 48, ALIEN + 'px');
   const ab = alienBox(), rb = rexBox();
-  check('티라노 몸통은 외계인의 2배', Math.abs(rb.h / ab.h - 2) < 0.1 && Math.abs(rb.w / ab.w - 2.5) < 0.6, '외계인 몸통 ' + ab.w + '×' + ab.h + ', 티라노 몸통 ' + rb.w + '×' + rb.h);
-  check('배터리와 떠 있는 땅이 없음', typeof batteries === 'undefined' && typeof PLATFORMS === 'undefined', '');
+  check('외계인 48px, 티라노 몸통은 외계인의 2배', ALIEN === 48 && Math.abs(rb.h / ab.h - 2) < 0.1, '외계인 몸통 ' + ab.w + '×' + ab.h + ', 티라노 몸통 ' + rb.w + '×' + rb.h);
+  check('목숨 5개', LIVES === 5 && lives === 5, '목숨 ' + lives);
+  check('배터리·떠 있는 땅·스테이지가 없음', typeof batteries === 'undefined' && typeof PLATFORMS === 'undefined' && typeof startStage === 'undefined', '');
+  check('티라노 체력이 많아짐', REX_HP === 100 && rex.hp === 100, '체력 ' + rex.hp + ' (칼 한 번에 ' + SWORD_DAMAGE + ')');
 
   // 2. 구르기
   fresh();
@@ -72,19 +81,24 @@ const TEST_SCRIPT = `<script>
   fresh();
   alien.x = 300;
   key('keydown', 'KeyQ'); key('keyup', 'KeyQ');
-  fireballs.push({ x: alien.x + ALIEN / 2, y: GROUND_Y - 22, vx: 0, time: 0 });
+  fireballs.push({ x: alien.x + ALIEN / 2, y: GROUND_Y - 20, vx: 0, vy: 0, floor: GROUND_Y - 20, time: 0 });
   step(0.1);
-  check('구르는 동안은 불덩이에 안 맞음', lives === LIVES, '목숨 ' + lives);
+  check('구르는 동안은 불꽃에 안 맞음', lives === LIVES, '목숨 ' + lives);
 
-  // 3. 총
+  // 3. 칼
+  fresh();
+  const hp0 = rex.hp;
+  slashRex();
+  check('클릭하면 칼로 베어서 티라노 체력 -2', rex.hp === hp0 - SWORD_DAMAGE, '체력 ' + hp0 + ' → ' + rex.hp);
+  const types = [];
+  fresh();
+  for (let i = 0; i < 3; i++) { alien.swingWait = 0; click(rex.x, GROUND_Y - 30); types.push(alien.slash && alien.slash.type); step(0.35); }
+  check('가로 베기·올려 베기를 번갈아 씀', types.join(',') === 'h,u,h', types.join(' → ') + ' (h 가로, u 올려)');
   fresh();
   alien.x = 40;
-  const hp0 = rex.hp;
-  click(rex.x + REX_W / 2, rex.y + REX_H * 0.6);
-  const flying = bullets.length === 1 && bullets[0].vx > 0;
-  check('왼쪽 클릭하면 마우스 쪽으로 총알이 나감', flying, '총알 ' + bullets.length + '개');
-  step(1);
-  check('총알이 티라노에 맞으면 체력 -1', rex.hp === hp0 - 1, '체력 ' + hp0 + ' → ' + rex.hp);
+  click(rex.x + REX_W / 2, GROUND_Y - 30);
+  step(0.3);
+  check('멀리서 휘두르면 안 닿음', rex.hp === REX_HP, '체력 ' + rex.hp);
 
   // 4. 티라노 공격 세 가지
   function attackTest(kind, alienX) {
@@ -94,50 +108,77 @@ const TEST_SCRIPT = `<script>
     rex.attack = kind; rex.wait = ATTACKS[kind].windup; rex.state = 'windup'; rex.time = 0;
     step(ATTACKS[kind].windup - 0.05);
     const safeInWindup = lives === LIVES;
-    step(2);
-    return { safeInWindup, hit: lives < LIVES };
+    let boomed = false;
+    for (let i = 0; i < 120; i++) { step(1 / 60); if (booms.length) boomed = true; }
+    return { safeInWindup, hit: lives < LIVES, boomed };
   }
   const claw = attackTest('claw', 300 - 40);
-  check('할퀴기: 예고 동안은 안 맞음', claw.safeInWindup, '예고 ' + ATTACKS.claw.windup + '초');
-  check('할퀴기: 앞에 있으면 목숨 -1', claw.hit, '');
+  check('할퀴기: 예고 동안은 안 맞고, 앞에 있으면 목숨 -1', claw.safeInWindup && claw.hit, '예고 ' + ATTACKS.claw.windup + '초');
   const fire = attackTest('fire', 60);
-  check('불 뿜기: 예고 동안은 안 맞음', fire.safeInWindup, '예고 ' + ATTACKS.fire.windup + '초');
-  check('불 뿜기: 멀리 있어도 불덩이에 목숨 -1', fire.hit, '');
+  check('불 뿜기: 예고 동안은 안 맞고, 불꽃에 목숨 -1', fire.safeInWindup && fire.hit, '예고 ' + ATTACKS.fire.windup + '초');
+  check('불꽃에 맞으면 터지는 그림이 나옴', fire.boomed, '');
   const charge = attackTest('charge', 60);
-  check('돌진: 예고 동안은 안 맞음', charge.safeInWindup, '예고 ' + ATTACKS.charge.windup + '초');
-  check('돌진: 달려와서 목숨 -1', charge.hit, '');
-  fresh();
-  rex.x = 300; rex.state = 'walk'; rex.think = 0.01; alien.x = 40; alien.hurt = 999;
-  const seen = new Set();
-  for (let i = 0; i < 40; i++) { rex.state = 'walk'; rex.think = 0.01; step(1 / 60); seen.add(rex.attack); alien.x = i % 2 ? 40 : rex.x - 30; }
-  check('티라노가 세 가지 공격을 골라 씀', seen.has('claw') && seen.has('fire') && seen.has('charge'), [...seen].join(', '));
+  check('돌진: 예고 동안은 안 맞고, 달려와서 목숨 -1', charge.safeInWindup && charge.hit, '예고 ' + ATTACKS.charge.windup + '초');
 
-  // 5. 스테이지
+  // 5. 하늘 싸움
   fresh();
-  rex.hp = 1;
-  click(rex.x + REX_W / 2, rex.y + REX_H * 0.6);
-  step(1.1); // 총알이 티라노까지 날아가는 시간
-  check('체력이 0 이 되면 티라노가 쓰러짐', rex.state === 'hit' || rex.state === 'death', 'rex=' + rex.state);
-  for (let i = 0; i < 600 && ship.state !== 'waiting'; i++) step(1 / 60);
-  check('쓰러지면 우주선이 내려와 기다림', ship.state === 'waiting', 'ship=' + ship.state);
-  alien.hurt = 999;
-  alien.x = ship.x + SHIP_W / 2 - ALIEN / 2;
-  for (let i = 0; i < 600 && stage === 1; i++) step(1 / 60);
-  check('우주선을 타면 2스테이지, 티라노 체력이 늘어남', stage === 2 && rex.maxHp > rexHpFor(1), 'stage=' + stage + ', 체력 ' + rexHpFor(1) + ' → ' + rex.maxHp);
-  startStage(LAST_STAGE); freezeRex(); rex.hp = 0; rex.state = 'gone';
-  for (let i = 0; i < 600 && ship.state !== 'waiting'; i++) step(1 / 60);
-  alien.hurt = 999; alien.x = ship.x + SHIP_W / 2 - ALIEN / 2;
-  for (let i = 0; i < 600 && !allClear; i++) step(1 / 60);
-  check('10스테이지를 마치면 모든 스테이지 클리어', allClear, 'allClear=' + allClear);
+  rex.hp = REX_HP / 2 + SWORD_DAMAGE;
+  slashRex();
+  check('체력이 절반이 되면 하늘로 올라감', phase === 'rising' && alien.aboard, 'phase=' + phase + ', 체력 ' + rex.hp);
+  step(RISE_TIME + 0.1);
+  check('땅이 사라지고 우주선을 탐', phase === 'sky' && groundShift() > H - GROUND_Y && alien.aboard, 'phase=' + phase);
+  alien.hurt = 0;
+  // 한 번은 일부러 맞아 봐요: 피한 횟수가 안 오르고 목숨만 줄어야 해요
+  const livesSky = lives;
+  for (let i = 0; i < 600 && fireballs.length === 0; i++) step(1 / 60);
+  for (let i = 0; i < 600 && fireballs.length; i++) { ship.x = Math.max(0, Math.min(W - SHIP_W, fireballs[0].x - SHIP_W / 2)); step(1 / 60); }
+  for (let i = 0; i < 60; i++) step(1 / 60);
+  check('하늘에서 불꽃에 맞으면 목숨 -1, 피한 횟수는 그대로', lives === livesSky - 1 && dodged === 0, '목숨 ' + livesSky + ' → ' + lives + ', 피함 ' + dodged);
+  // 이제 계속 피해요: 불꽃이 날아오면 우주선을 불꽃에서 먼 쪽 끝으로 옮겨요
+  for (let i = 0; i < 6000 && !counterReady; i++) {
+    if (fireballs.length) {
+      const fx = fireballs.reduce((s, f) => s + f.x, 0) / fireballs.length;
+      ship.x = fx > W / 2 ? 0 : W - SHIP_W;
+    }
+    step(1 / 60);
+  }
+  check('불꽃을 5번 피하면 반격하기 버튼이 뜸', counterReady && dodged === 5, '피함 ' + dodged + '/' + DODGE_GOAL);
+  const hpBefore = rex.hp;
+  click(COUNTER_BUTTON.x + COUNTER_BUTTON.w / 2, COUNTER_BUTTON.y + COUNTER_BUTTON.h / 2);
+  check('반격하기 버튼을 누르면 반격', phase === 'counter', 'phase=' + phase);
+  step(COUNTER_TIME + 0.05);
+  check('반격하면 티라노 체력이 5분의 1(20) 깎임', rex.hp === hpBefore - COUNTER_DAMAGE, '체력 ' + hpBefore + ' → ' + rex.hp);
+  step(RISE_TIME + 0.1);
+  check('반격 뒤 다시 땅으로 내려와 싸움', phase === 'ground' && !alien.aboard && groundShift() === 0 && Math.abs(alien.y + ALIEN - GROUND_Y) < 1, 'phase=' + phase);
+  rex.hp = REX_HP / 2 - 2; freezeRex();
+  slashRex();
+  check('하늘 싸움은 한 번만', phase === 'ground', 'phase=' + phase);
 
-  // 사진용: 3스테이지, 티라노가 불 뿜기를 준비하는 중 (사진 찍을 때까지 그대로 있게 길게)
+  // 6. 이기기
+  fresh();
+  rex.hp = SWORD_DAMAGE; skyDone = true;
+  slashRex();
+  step(2.5);
+  check('체력이 0 이 되면 "티라노를 물리쳤어요"', win, 'win=' + win);
+
+  // 사진용 장면. 주소 뒤 #ground / #sky 로 골라요. 사진 찍을 때까지 그대로 있게 게임을 멈춰요.
   resetGame();
-  startStage(3);
-  rex.x = 380; rex.dir = -1; rex.hp = Math.round(rex.maxHp * 0.6);
-  rex.attack = 'fire'; rex.state = 'windup'; rex.wait = 999;
-  alien.x = 120; alien.hurt = 0;
-  aimX = rex.x + REX_W / 2; aimY = rex.y + 60;
-  bullets.push({ x: 230, y: 250, vx: 0, vy: 0 });
+  if (location.hash === '#sky') {
+    rex.hp = 50; startRising(); step(RISE_TIME + 0.1);
+    dodged = 3; lives = 4;
+    ship.x = 120;
+    rex.state = 'fire';
+    fireballs.push({ x: 300, y: 200, vx: -120, vy: 200, floor: Infinity, time: 0 });
+    fireballs.push({ x: 380, y: 160, vx: 0, vy: 230, floor: Infinity, time: 0.2 });
+    fireballs.push({ x: 460, y: 200, vx: 120, vy: 200, floor: Infinity, time: 0.1 });
+  } else {
+    rex.hp = 76; rex.x = 360; rex.dir = -1; rex.state = 'idle'; rex.wait = 999;
+    alien.x = rex.x + 18 * REX_SIZE - ALIEN - 10; aimX = rex.x + 100; aimY = 260;
+    alien.flip = false;
+    alien.slash = { type: 'h', time: 0.12, dir: 1, hit: true };
+    booms.push({ x: 120, y: GROUND_Y - 20, time: 0.1 });
+  }
+  update = function () {};
 
   const pre = document.createElement('pre');
   pre.id = '__stage';
@@ -175,15 +216,19 @@ function main() {
 
   const dom = runBrowser(browser, ['--dump-dom', pathToFileUrl(file)]);
   const m = dom.match(/<pre id="__stage"[^>]*>([\s\S]*?)<\/pre>/);
-  const shot = path.join(SHOTS_DIR, 'my-game-stage3-fire.png');
-  runBrowser(browser, [`--screenshot=${shot}`, pathToFileUrl(file)]);
+  const shots = [];
+  for (const scene of ['ground', 'sky']) {
+    const shot = path.join(SHOTS_DIR, `my-game-${scene}.png`);
+    runBrowser(browser, [`--screenshot=${shot}`, pathToFileUrl(file) + '#' + scene]);
+    shots.push(shot);
+  }
 
   console.log('\n=== 게임 시험 (week-05\\index.html) ===');
   if (!m) { console.log('결과를 읽지 못했어요. 시간이 모자랐거나 게임이 멈췄을 수 있어요.'); process.exit(1); }
   const text = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   const results = JSON.parse(text);
   for (const r of results) console.log(`${r.pass ? '[통과]' : '[실패]'} ${r.name}${r.detail ? ' (' + r.detail + ')' : ''}`);
-  console.log('사진: ' + path.relative(path.dirname(GAME_DIR), shot));
+  for (const shot of shots) console.log('사진: ' + path.relative(path.dirname(GAME_DIR), shot));
   console.log('');
   process.exit(results.every(r => r.pass) ? 0 : 1);
 }
