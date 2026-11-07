@@ -2,17 +2,17 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>내 게임 · 외계인의 배터리 모으기</title>
+<title>내 게임 · 외계인과 티라노</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
   body { display: flex; justify-content: center; align-items: center; font-family: sans-serif; }
-  canvas { image-rendering: pixelated; }
+  canvas { image-rendering: pixelated; cursor: crosshair; }
   p { position: fixed; bottom: 8px; left: 0; right: 0; margin: 0; text-align: center; color: #fff; text-shadow: 0 1px 2px #000; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<p>A D 이동 · 스페이스 점프 · 배터리를 다 모으면 우주선을 타고 다음 스테이지로 (티라노 머리를 밟으면 쓰러져요 · 처음 키를 누르면 음악이 나와요)</p>
+<p>A D 이동 · 스페이스 점프 · 마우스 왼쪽 클릭 총 · Q 구르기 (구르는 동안 안 맞아요) · 티라노 머리 위에 "!" 가 뜨면 공격이 와요</p>
 <script>
 // ===== 에셋 불러오기 =====
 // 그림은 assets/images, 소리는 assets/sounds 에 있어요.
@@ -44,14 +44,13 @@ function loadImage(file) {
 for (const group of Object.values(ANIMS)) {
   for (const anim of Object.values(group)) anim.img = loadImage(anim.file);
 }
-const powerUpImg = loadImage('power-up.png');                    // 16×16 배터리
 const shipImg = loadImage('dart-ship.png');                      // 98×75 우주선 (위를 봐요)
 const tilesetImg = loadImage('palm-island-tileset.png');         // 544×160, 32×32 타일
 const backgroundImg = loadImage('space-background-darkpurple.png'); // 256×256, 바둑판처럼 깔기
 
 // 소리
 const sounds = {
-  portal: new Audio(SND + 'portal.wav'), // 배터리 먹을 때
+  portal: new Audio(SND + 'portal.wav'), // 우주선이 올 때, 탈 때
 };
 const bgm = new Audio(SND + 'epic-space-shooter.mp3');
 bgm.loop = true;   // 끊김 없이 반복
@@ -126,32 +125,40 @@ function drawBackground() {
 const GROUND_Y = H - TILE * 2; // 땅 윗면
 const GRAVITY = 1000;
 const SPEED = 160;
-const JUMP = 450;        // 약 100px 높이까지 뛰어요. 떠 있는 땅은 80px 씩 위에 있어요.
-const ALIEN_SIZE = 2;    // 외계인 그림(24×24)을 2배로 키워서 티라노 몸집과 비슷하게
+const JUMP = 450;        // 약 100px 높이까지 뛰어요. 날아오는 불덩이를 넘을 수 있어요.
+const ALIEN_SIZE = 2;    // 외계인 그림(24×24)을 원래보다 2배로 → 48px
 const ALIEN = 24 * ALIEN_SIZE;
+const REX_SIZE = 2;      // 티라노 그림(80×62)을 2배로 → 몸통이 외계인의 2배
+const REX_W = 80 * REX_SIZE, REX_H = 62 * REX_SIZE;
 const LIVES = 3;
-
-// 스테이지: 1스테이지는 배터리 3개, 한 스테이지마다 1개씩 늘어서 10스테이지는 12개 (마지막)
-const FIRST_BATTERIES = 3;
-const MAX_BATTERIES = 12;
-const LAST_STAGE = MAX_BATTERIES - FIRST_BATTERIES + 1;
-function batteriesFor(stage) {
-  return FIRST_BATTERIES + stage - 1;
+const LAST_STAGE = 10;
+// 티라노 체력: 1스테이지 15 → 한 스테이지마다 5씩 늘어서 10스테이지 60
+function rexHpFor(stage) {
+  return 10 + stage * 5;
 }
 
-// 하늘에 떠 있는 땅 (야자섬 타일셋 맨 아랫줄의 얇은 땅). 아래에서는 뚫고 올라가고, 위에서 내려올 때만 밟혀요.
-const PLATFORMS = [
-  { x: 64,  y: 216, w: 4 * TILE }, { x: 448, y: 216, w: 4 * TILE },
-  { x: 256, y: 136, w: 4 * TILE },
-  { x: 32,  y: 56,  w: 3 * TILE }, { x: 512, y: 56,  w: 3 * TILE },
-];
-// 외계인이 서 있을 수 있는 곳 (바닥 땅 + 떠 있는 땅)
-const SURFACES = [{ x: 0, y: GROUND_Y, w: W }, ...PLATFORMS];
+// 구르기: Q 키. 쿨타임 없이, 한 번 구르기가 끝나면 바로 또 구를 수 있어요. 구르는 동안은 안 맞아요.
+const ROLL_TIME = 0.35;
+const ROLL_SPEED = 330;
+// 총: 마우스 왼쪽 클릭. 마우스가 있는 쪽으로 쏴요.
+const BULLET_SPEED = 520;
+const SHOOT_GAP = 0.12;  // 너무 빨리 눌러도 이 간격보다 빨리 나가지는 않아요
 
-let alien, rex, ship, batteries, got, stage, lives, gameOver, allClear;
+// 티라노 공격 세 가지. windup 은 공격 전에 "!" 를 띄우고 준비하는 시간(예고)이에요.
+const ATTACKS = {
+  claw:   { windup: 0.45 }, // 할퀴기: 가까이 있을 때 앞발로
+  fire:   { windup: 0.6 },  // 불 뿜기: 입에서 불덩이 3개
+  charge: { windup: 0.7 },  // 돌진: 벽에 닿을 때까지 달려와요. 벽에 부딪히면 잠깐 멈춰요.
+};
+
+let alien, rex, ship, bullets, fireballs, sparks, stage, lives, gameOver, allClear;
+let aimX = W / 2, aimY = H / 2; // 마우스가 가리키는 곳 (게임 세상 좌표)
 
 function newRex(x) {
-  return { x, y: GROUND_Y - 62, dir: -1, state: 'walk', time: 0, wait: 0, cooldown: 0 };
+  const hp = rexHpFor(stage);
+  // 스테이지가 시작되면 티라노는 1초 동안 가만히 있다가 움직여요.
+  return { x, y: GROUND_Y - REX_H, dir: -1, state: 'idle', time: 0, wait: 1, walkTime: 0, moving: false,
+           think: 1.5, attack: null, fired: 0, hp, maxHp: hp, flash: 0 };
 }
 
 function resetGame() {
@@ -161,51 +168,31 @@ function resetGame() {
   startStage(1);
 }
 
-// 스테이지를 새로 시작해요. 모은 배터리 수는 0 으로 돌아가요.
 function startStage(n) {
   stage = n;
-  got = 0;
-  alien = { x: 40, y: GROUND_Y - ALIEN, vx: 0, vy: 0, onGround: true, flip: false, walkTime: 0, hurt: 0, push: 0, aboard: false };
-  rex = newRex(W - 120);
+  alien = { x: 40, y: GROUND_Y - ALIEN, vx: 0, vy: 0, onGround: true, flip: false, walkTime: 0, hurt: 0, push: 0,
+            aboard: false, roll: 0, rollDir: 1, shootWait: 0 };
+  rex = newRex(W - REX_W - 20);
   ship = { state: 'hidden', x: 0, y: 0, time: 0 };
-  spawnBatteries(batteriesFor(n));
+  bullets = [];
+  fireballs = [];
+  sparks = [];
 }
-
-const BATTERY = 32;      // 배터리 그림(16×16)을 2배로 키워서 그려요
-const BATTERY_RISE = 70; // 배터리는 밟을 수 있는 땅 위로 이 높이 안에서만 나와요 (점프로 닿는 높이)
 
 function random(min, max) {
   return min + Math.random() * (max - min);
-}
-
-// 배터리를 곳곳에 무작위로 뿌려요.
-function spawnBatteries(count) {
-  batteries = [];
-  const total = SURFACES.reduce((sum, s) => sum + s.w, 0);
-  for (let tries = 0; batteries.length < count && tries < 2000; tries++) {
-    let pick = random(0, total);
-    const s = SURFACES.find(s => (pick -= s.w) < 0) || SURFACES[0];
-    const x = random(s.x + 4, s.x + s.w - BATTERY - 4);
-    const y = Math.max(30, s.y - BATTERY - 4 - random(0, BATTERY_RISE));
-    const b = { x, y, phase: random(0, 6) };
-    const tooClose = p => Math.hypot(p.x - b.x, p.y - b.y) < 48;
-    const nearAlien = Math.hypot(alien.x + ALIEN / 2 - b.x, alien.y + ALIEN / 2 - b.y) < 60;
-    const inPlatform = PLATFORMS.some(p => b.x + BATTERY > p.x && b.x < p.x + p.w && b.y + BATTERY > p.y - 4 && b.y < p.y + TILE);
-    const onHud = b.y < 40 && (b.x < 110 || b.x > W - 120 || Math.abs(b.x - W / 2) < 70); // 위쪽 글자 자리
-    if (batteries.some(tooClose) || nearAlien || inPlatform || onHud) continue; // 겹치면 다시 뽑기
-    batteries.push(b);
-  }
 }
 
 const keys = {};
 addEventListener('keydown', e => {
   if (e.code === 'Space' && !e.repeat) {
     if (gameOver || allClear) resetGame();
-    else if (alien.onGround && !alien.aboard) {
+    else if (alien.onGround && !alien.aboard && alien.roll <= 0) {
       alien.vy = -JUMP;
       alien.onGround = false;
     }
   }
+  if (e.code === 'KeyQ' && !e.repeat) startRoll();
   keys[e.code] = true;
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
 });
@@ -213,121 +200,213 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 // 키를 누른 채 다른 창으로 가면 keyup 이 안 와서 계속 달려요. 그래서 창을 떠나면 키를 모두 놓아요.
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
+// 마우스 위치를 게임 세상 좌표(640×360)로 바꿔요.
+function setAim(e) {
+  const r = canvas.getBoundingClientRect();
+  aimX = (e.clientX - r.left) / r.width * W;
+  aimY = (e.clientY - r.top) / r.height * H;
+}
+addEventListener('pointermove', setAim);
+addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  setAim(e);
+  if (gameOver || allClear) resetGame();
+  else shoot();
+});
+
+function startRoll() {
+  if (gameOver || allClear || alien.aboard || alien.roll > 0) return;
+  const right = keys.KeyD || keys.ArrowRight, left = keys.KeyA || keys.ArrowLeft;
+  alien.rollDir = right && !left ? 1 : left && !right ? -1 : alien.flip ? -1 : 1;
+  alien.roll = ROLL_TIME;
+  alien.push = 0;
+}
+
+// 총알은 외계인 가운데에서 마우스 쪽으로 나가요.
+function gunOrigin() {
+  return { x: alien.x + ALIEN / 2, y: alien.y + ALIEN * 0.6 };
+}
+function shoot() {
+  if (alien.aboard || alien.roll > 0 || alien.shootWait > 0) return;
+  const o = gunOrigin();
+  let dx = aimX - o.x, dy = aimY - o.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) { dx = alien.flip ? -1 : 1; dy = 0; } else { dx /= len; dy /= len; }
+  bullets.push({ x: o.x + dx * 16, y: o.y + dy * 16, vx: dx * BULLET_SPEED, vy: dy * BULLET_SPEED });
+  alien.shootWait = SHOOT_GAP;
+}
+
 // 부딪힘을 볼 상자들. 그림의 빈칸은 빼고 실제로 보이는 몸통만 써요.
 function alienBox() {
   return { x: alien.x + 3 * ALIEN_SIZE, y: alien.y + 2 * ALIEN_SIZE, w: 18 * ALIEN_SIZE, h: 22 * ALIEN_SIZE };
 }
-// 티라노는 오른쪽을 보는 그림이라, 왼쪽으로 갈 때는 상자도 뒤집어요.
+// 티라노 몸통 (그림의 18~62 칸, 20~62 줄). 왼쪽·오른쪽이 같은 자리라 뒤집어도 그대로예요.
 function rexBox() {
-  const reach = rex.state === 'attack' ? 12 : 0; // 물 때는 앞으로 더 나와요
-  const left = 18, right = 62 + reach;
-  const x = rex.dir > 0 ? rex.x + left : rex.x + 80 - right;
-  return { x, y: rex.y + 20, w: right - left, h: 42 };
+  return { x: rex.x + 18 * REX_SIZE, y: rex.y + 20 * REX_SIZE, w: 44 * REX_SIZE, h: 42 * REX_SIZE };
+}
+// 할퀴기가 닿는 곳: 티라노 앞쪽
+function clawBox() {
+  const w = 50, x = rex.dir > 0 ? rex.x + 57 * REX_SIZE : rex.x + (80 - 57) * REX_SIZE - w;
+  return { x, y: rex.y + 25 * REX_SIZE, w, h: 37 * REX_SIZE };
+}
+// 입 위치 (오른쪽을 보는 그림에서 66칸, 34줄)
+function rexMouth() {
+  const mx = rex.dir > 0 ? 66 : 80 - 66;
+  return { x: rex.x + mx * REX_SIZE, y: rex.y + 34 * REX_SIZE };
 }
 function overlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
-
 function setRex(state) {
   if (rex.state !== state) { rex.state = state; rex.time = 0; }
+}
+function rexAlive() {
+  return rex.state !== 'hit' && rex.state !== 'death' && rex.state !== 'gone';
+}
+
+// 외계인이 맞았을 때. 구르는 중이거나 맞은 지 얼마 안 됐으면 안 맞아요.
+function hurtAlien(fromX) {
+  if (alien.hurt > 0 || alien.roll > 0 || alien.aboard) return;
+  lives--;
+  alien.hurt = 1.5;
+  alien.push = 0.3;
+  alien.vx = (alien.x + ALIEN / 2 < fromX ? -1 : 1) * 220;
+  alien.vy = -250;
+  alien.onGround = false;
+  if (lives <= 0) gameOver = true;
 }
 
 function updateAlien(dt) {
   const right = keys.KeyD || keys.ArrowRight, left = keys.KeyA || keys.ArrowLeft;
-  if (alien.push > 0) alien.push -= dt; // 맞고 튕겨 나가는 동안은 키가 안 먹어요
-  else alien.vx = (right ? SPEED : 0) - (left ? SPEED : 0);
-  if (alien.vx) alien.flip = alien.vx < 0;
+  if (alien.roll > 0) {
+    alien.roll -= dt;
+    alien.vx = alien.rollDir * ROLL_SPEED;
+    alien.flip = alien.rollDir < 0;
+  } else if (alien.push > 0) alien.push -= dt; // 맞고 튕겨 나가는 동안은 키가 안 먹어요
+  else {
+    alien.vx = (right ? SPEED : 0) - (left ? SPEED : 0);
+    alien.flip = aimX < alien.x + ALIEN / 2; // 마우스 쪽을 봐요
+  }
   alien.x = Math.max(0, Math.min(W - ALIEN, alien.x + alien.vx * dt));
-
-  const prevFeet = alien.y + ALIEN;
   alien.vy += GRAVITY * dt;
   alien.y += alien.vy * dt;
-  const feet = alien.y + ALIEN;
-
-  // 내려오다가 발이 땅 윗면을 지나가면 그 위에 세워요. 땅 끝에서 걸어 나가면 떨어져요.
   alien.onGround = false;
-  if (alien.vy >= 0) {
-    for (const s of SURFACES) {
-      const over = alien.x + ALIEN - 4 * ALIEN_SIZE > s.x && alien.x + 4 * ALIEN_SIZE < s.x + s.w;
-      if (over && prevFeet <= s.y + 1 && feet >= s.y) {
-        alien.y = s.y - ALIEN;
-        alien.vy = 0;
-        alien.onGround = true;
-        break;
-      }
-    }
-  }
-  // 바닥 땅은 무슨 일이 있어도 뚫고 내려가지 않게 해요.
-  if (feet > GROUND_Y) {
+  if (alien.y + ALIEN >= GROUND_Y) {
     alien.y = GROUND_Y - ALIEN;
     alien.vy = 0;
     alien.onGround = true;
   }
   if (alien.onGround && alien.vx) alien.walkTime += dt;
   if (alien.hurt > 0) alien.hurt -= dt;
-  return prevFeet;
+  if (alien.shootWait > 0) alien.shootWait -= dt;
 }
 
-function updateRex(dt, alienPrevFeet) {
-  rex.time += dt;
-  if (rex.cooldown > 0) rex.cooldown -= dt;
-  const rexSpeed = Math.min(90 + (stage - 1) * 10, 180); // 스테이지가 올라갈수록 빨라져요
+// 티라노가 다음에 쓸 공격을 골라요. 가까우면 할퀴기나 돌진, 멀면 불 뿜기나 돌진.
+function chooseAttack(dist) {
+  if (dist < 130) return Math.random() < 0.6 ? 'claw' : 'charge';
+  return Math.random() < 0.5 ? 'fire' : 'charge';
+}
 
-  if (rex.state === 'walk') {
-    rex.x += rex.dir * rexSpeed * dt;
-    if (rex.x < -10 || rex.x > W - 70) { // 끝에 닿으면 잠깐 쉬었다가 돌아서요
-      rex.x = Math.max(-10, Math.min(W - 70, rex.x));
-      setRex('idle');
-      rex.wait = 0.6;
-    }
-    // 외계인이 바로 앞 바닥에 있으면 물어요
-    const front = rex.dir > 0 ? alien.x - (rex.x + 60) : rex.x + 20 - (alien.x + ALIEN);
-    if (rex.cooldown <= 0 && front > -10 && front < 24 && alien.y + ALIEN > GROUND_Y - 30) setRex('attack');
-  } else if (rex.state === 'idle') {
+function updateRex(dt) {
+  rex.time += dt;
+  if (rex.flash > 0) rex.flash -= dt;
+  const alienMid = alien.x + ALIEN / 2;
+  const rexMid = rex.x + REX_W / 2;
+  const dist = Math.abs(alienMid - rexMid) - 22 * REX_SIZE; // 몸통 앞쪽에서 외계인까지
+  const walkSpeed = Math.min(60 + stage * 8, 140);           // 스테이지가 올라갈수록 빨라져요
+  const minX = -18 * REX_SIZE, maxX = W - 62 * REX_SIZE;     // 몸통이 화면 밖으로 나가지 않게
+
+  if (rex.state === 'idle') {
     rex.wait -= dt;
-    if (rex.wait <= 0) { rex.dir = -rex.dir; setRex('walk'); }
-  } else if (rex.state === 'attack') {
-    if (animDone(ANIMS.rex.attack, rex.time)) { rex.cooldown = 0.8; setRex('walk'); }
+    if (rex.wait <= 0) setRex('walk');
+  } else if (rex.state === 'walk') {
+    rex.dir = alienMid < rexMid ? -1 : 1; // 외계인 쪽을 봐요
+    rex.moving = dist > 60;
+    if (rex.moving) {
+      rex.x = Math.max(minX, Math.min(maxX, rex.x + rex.dir * walkSpeed * dt));
+      rex.walkTime += dt;
+    }
+    rex.think -= dt;
+    if (rex.think <= 0) {
+      rex.attack = chooseAttack(dist);
+      rex.wait = ATTACKS[rex.attack].windup;
+      setRex('windup');
+    }
+  } else if (rex.state === 'windup') {
+    rex.wait -= dt;
+    if (rex.wait <= 0) { rex.fired = 0; setRex(rex.attack); }
+  } else if (rex.state === 'claw') {
+    if (rex.time > 0.08 && rex.time < 0.3 && overlap(alienBox(), clawBox())) hurtAlien(rexMid);
+    if (rex.time > 0.35) restRex(0.5);
+  } else if (rex.state === 'fire') {
+    // 0.2초마다 불덩이 하나씩, 모두 3개
+    while (rex.fired < 3 && rex.time >= rex.fired * 0.2) {
+      const m = rexMouth();
+      fireballs.push({ x: m.x, y: m.y, vx: rex.dir * 240, time: 0 });
+      rex.fired++;
+    }
+    if (rex.time > 0.8) restRex(0.6);
+  } else if (rex.state === 'charge') {
+    rex.x += rex.dir * Math.min(340 + stage * 10, 440) * dt;
+    rex.walkTime += dt * 2;
+    if (rex.x <= minX || rex.x >= maxX) { // 벽에 쾅! 잠깐 어지러워해요 (총 쏠 기회)
+      rex.x = Math.max(minX, Math.min(maxX, rex.x));
+      restRex(1.0);
+    }
   } else if (rex.state === 'hit') {
     if (animDone(ANIMS.rex.hit, rex.time)) setRex('death');
   } else if (rex.state === 'death') {
-    // 다 쓰러지고 3초 뒤, 외계인에게서 먼 쪽 끝에서 새 티라노가 나와요
-    if (rex.time > 3) {
-      const x = alien.x < W / 2 ? W - 70 : -10;
-      rex = newRex(x);
-      rex.dir = x < 0 ? 1 : -1;
-    }
+    if (rex.time > 3) setRex('gone');
   }
-  if (rex.state === 'hit' || rex.state === 'death' || alien.aboard) return;
 
-  const a = alienBox(), r = rexBox();
-  if (!overlap(a, r)) return;
-  // 위에서 떨어지며 머리를 밟으면 티라노가 쓰러져요
-  if (alien.vy > 0 && alienPrevFeet <= r.y + 8) {
-    setRex('hit');
-    alien.vy = -JUMP * 0.7;
-    return;
-  }
-  if (alien.hurt > 0) return; // 맞은 뒤 잠깐은 다시 안 맞아요
-  lives--;
-  alien.hurt = 1.5;
-  alien.push = 0.3;
-  alien.vx = (a.x + a.w / 2 < r.x + r.w / 2 ? -1 : 1) * 220;
-  alien.vy = -250;
-  alien.onGround = false;
-  if (lives <= 0) gameOver = true;
+  // 몸에 닿아도 맞아요 (쓰러진 티라노는 빼고)
+  if (rexAlive() && overlap(alienBox(), rexBox())) hurtAlien(rexMid);
+}
+function restRex(seconds) {
+  rex.wait = seconds;
+  rex.think = Math.max(0.6, random(1.0, 2.0) - stage * 0.05);
+  setRex('idle');
 }
 
-// 우주선: 배터리를 다 모으면 바닥 가운데로 내려와요.
+function updateShots(dt) {
+  // 외계인 총알: 티라노 몸통에 맞으면 체력 -1
+  bullets = bullets.filter(b => {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (rexAlive() && overlap({ x: b.x - 3, y: b.y - 3, w: 6, h: 6 }, rexBox())) {
+      rex.hp--;
+      rex.flash = 0.08;
+      sparks.push({ x: b.x, y: b.y, time: 0 });
+      if (rex.hp <= 0) { rex.hp = 0; setRex('hit'); fireballs = []; }
+      return false;
+    }
+    return b.x > -10 && b.x < W + 10 && b.y > -10 && b.y < GROUND_Y;
+  });
+  // 티라노 불덩이: 입에서 나와 땅 가까이로 내려오면서 날아가요
+  const fireY = GROUND_Y - 22;
+  fireballs = fireballs.filter(f => {
+    f.time += dt;
+    f.x += f.vx * dt;
+    f.y = Math.min(fireY, f.y + 120 * dt);
+    if (overlap(alienBox(), { x: f.x - 8, y: f.y - 8, w: 16, h: 16 })) {
+      hurtAlien(f.x - f.vx);
+      if (alien.hurt > 0 && alien.roll <= 0) return false; // 맞으면 불덩이는 사라져요
+    }
+    return f.x > -20 && f.x < W + 20;
+  });
+  sparks = sparks.filter(s => (s.time += dt) < 0.15);
+}
+
+// 우주선: 티라노를 쓰러뜨리면 바닥 가운데로 내려와요.
 // 외계인이 닿으면 태우고 위로 날아가서 다음 스테이지가 시작돼요.
 const SHIP_W = 98, SHIP_H = 75;
 function updateShip(dt) {
   ship.time += dt;
   if (ship.state === 'hidden') {
-    if (got < batteriesFor(stage)) return;
+    if (rex.state !== 'gone' && !(rex.state === 'death' && rex.time > 1.5)) return;
     ship.state = 'landing';
     ship.time = 0;
-    ship.x = (W - SHIP_W) / 2; // 낮게 떠 있는 땅 두 개 사이 빈자리 (양쪽은 땅에 가려요)
+    ship.x = (W - SHIP_W) / 2;
     ship.y = -SHIP_H;
     playSound('portal');
   } else if (ship.state === 'landing') {
@@ -356,76 +435,159 @@ function update(dt) {
     rex.time += dt;
     return;
   }
-  const prevFeet = alien.aboard ? alien.y + ALIEN : updateAlien(dt);
-  updateRex(dt, prevFeet);
+  if (!alien.aboard) updateAlien(dt);
+  updateRex(dt);
+  updateShots(dt);
   updateShip(dt);
-
-  // 배터리 먹기
-  const a = alienBox();
-  batteries = batteries.filter(b => {
-    const hit = overlap(a, { x: b.x + 4, y: b.y + 2, w: BATTERY - 8, h: BATTERY - 4 });
-    if (hit) { got++; playSound('portal'); }
-    return !hit;
-  });
 }
 
 // 타일셋 맨 윗줄 왼쪽 3칸은 풀 덮인 땅(왼끝·가운데·오른끝), 둘째 줄은 그 아래 흙이에요.
-// 맨 아랫줄(5번째 줄) 왼쪽 3칸은 얇게 떠 있는 땅이에요.
 function edgeCol(x, left, right) {
   return x === left ? 0 : x + TILE >= right ? 2 : 1;
+}
+
+// 티라노 그리기. 공격 준비(windup)는 몸을 뒤로 젖힌 그림(attack 1번째 프레임)으로 보여 줘요.
+function drawRex() {
+  if (rex.state === 'gone') return;
+  if (rex.state === 'death' && rex.time > 2 && Math.floor(clock * 10) % 2) return; // 마지막 1초는 깜빡
+  const A = ANIMS.rex;
+  let anim = A.idle, time = rex.time, frame;
+  let x = Math.round(rex.x);
+  if (rex.state === 'walk') { anim = rex.moving ? A.walk : A.idle; time = rex.moving ? rex.walkTime : rex.time; }
+  else if (rex.state === 'windup') {
+    anim = A.attack; frame = 0;
+    x += Math.round(Math.sin(clock * 60)); // 부르르 떨어요
+  }
+  else if (rex.state === 'claw') { anim = A.attack; frame = rex.time < 0.12 ? 1 : 2; }
+  else if (rex.state === 'fire') { anim = A.attack; frame = 2; }
+  else if (rex.state === 'charge') { anim = A.walk; time = rex.walkTime; }
+  else if (rex.state === 'hit' || rex.state === 'death') anim = A[rex.state];
+  if (rex.flash > 0) ctx.filter = 'brightness(3)'; // 총알에 맞으면 하얗게 번쩍
+  drawAnim(anim, time, x, rex.y, rex.dir < 0, frame, REX_SIZE);
+  ctx.filter = 'none';
+
+  if (rex.state === 'windup') {
+    // 머리 위 "!" : 공격이 온다는 예고. 준비 그림은 머리를 뒤로 젖혀서 머리 가운데가 24칸쯤이에요.
+    const hx = rex.x + (rex.dir > 0 ? 24 : 80 - 24) * REX_SIZE;
+    const color = rex.attack === 'fire' ? '#ff8a1f' : rex.attack === 'charge' ? '#ff3b3b' : '#ffe14a';
+    drawBang(Math.round(hx), Math.round(rex.y - 12), color);
+    // 불 뿜기 준비: 입에서 불씨가 깜빡여요
+    if (rex.attack === 'fire' && Math.floor(clock * 16) % 2) {
+      const m = rexMouth();
+      drawFireball(m.x, m.y, 0.6);
+    }
+    // 돌진 준비: 뒷발에서 흙먼지
+    if (rex.attack === 'charge') {
+      ctx.fillStyle = '#c9b49a';
+      const fx = rex.dir > 0 ? rex.x + 25 * REX_SIZE : rex.x + 55 * REX_SIZE;
+      for (let i = 0; i < 3; i++) {
+        const t = (clock * 3 + i / 3) % 1;
+        ctx.fillRect(Math.round(fx - rex.dir * t * 30), Math.round(GROUND_Y - 4 - t * 12), 4, 4);
+      }
+    }
+  }
+}
+function drawBang(cx, y, color) {
+  ctx.fillStyle = '#2b1d2e';
+  ctx.fillRect(cx - 4, y - 2, 8, 18);
+  ctx.fillRect(cx - 4, y + 18, 8, 8);
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - 2, y, 4, 14);
+  ctx.fillRect(cx - 2, y + 20, 4, 4);
+}
+// 불덩이: 겉은 주황, 속은 노랑. 깜빡이며 크기가 살짝 바뀌어요.
+function drawFireball(x, y, scale = 1) {
+  const s = Math.round((Math.floor(clock * 20) % 2 ? 7 : 8) * scale);
+  ctx.fillStyle = '#e8401c';
+  ctx.fillRect(Math.round(x - s), Math.round(y - s), s * 2, s * 2);
+  ctx.fillStyle = '#ff9a1f';
+  ctx.fillRect(Math.round(x - s + 2), Math.round(y - s + 2), s * 2 - 4, s * 2 - 4);
+  ctx.fillStyle = '#ffe66b';
+  ctx.fillRect(Math.round(x - s / 2), Math.round(y - s / 2), s, s);
+}
+
+// 외계인 그리기. 구를 때는 빙글 돌아요. 손에는 마우스 쪽을 향한 작은 총.
+function drawAlien() {
+  if (alien.aboard) return;
+  if (alien.hurt > 0 && alien.roll <= 0 && Math.floor(clock * 12) % 2) return; // 맞은 뒤 깜빡
+  const x = Math.round(alien.x), y = Math.round(alien.y);
+  if (alien.roll > 0) {
+    const turn = (1 - alien.roll / ROLL_TIME) * Math.PI * 2 * alien.rollDir;
+    ctx.save();
+    ctx.translate(x + ALIEN / 2, y + ALIEN / 2);
+    ctx.rotate(turn);
+    drawAnim(ANIMS.alien.walk, 0, -ALIEN / 2, -ALIEN / 2, alien.flip, 1, ALIEN_SIZE);
+    ctx.restore();
+    return;
+  }
+  const frame = !alien.onGround ? 1 : alien.vx ? undefined : 0;
+  drawAnim(ANIMS.alien.walk, alien.walkTime, x, y, alien.flip, frame, ALIEN_SIZE);
+  const o = gunOrigin();
+  ctx.save();
+  ctx.translate(Math.round(o.x), Math.round(o.y));
+  ctx.rotate(Math.atan2(aimY - o.y, aimX - o.x));
+  ctx.fillStyle = '#2b1d2e';
+  ctx.fillRect(4, -4, 18, 8);
+  ctx.fillStyle = '#9aa3b5';
+  ctx.fillRect(6, -2, 14, 4);
+  ctx.restore();
 }
 
 let clock = 0;
 function draw() {
   drawBackground();
-
   for (let x = 0; x < W; x += TILE) {
     const col = edgeCol(x, 0, W);
     drawTile(col, 0, x, GROUND_Y);
     drawTile(col, 1, x, GROUND_Y + TILE);
   }
-  for (const p of PLATFORMS) {
-    for (let x = p.x; x < p.x + p.w; x += TILE) drawTile(edgeCol(x, p.x, p.x + p.w), 4, x, p.y);
-  }
-
-  // 배터리는 위아래로 살짝 둥실둥실
-  for (const b of batteries) ctx.drawImage(powerUpImg, Math.round(b.x), Math.round(b.y + Math.sin(clock * 3 + b.phase) * 2), BATTERY, BATTERY);
-
-  // 쓰러진 티라노는 마지막 1초 동안 깜빡이다 사라져요
-  const fading = rex.state === 'death' && rex.time > 2 && Math.floor(clock * 10) % 2;
-  if (!fading) drawAnim(ANIMS.rex[rex.state], rex.time, Math.round(rex.x), rex.y, rex.dir < 0);
-
+  drawRex();
   if (ship.state !== 'hidden') {
     // 기다리는 동안은 살짝 위아래로 떠 있어요
     const bob = ship.state === 'waiting' ? Math.round(Math.sin(clock * 4) * 2) : 0;
     ctx.drawImage(shipImg, Math.round(ship.x), Math.round(ship.y) + bob);
   }
-
-  // 외계인: 땅에서 움직일 때만 걷기 애니메이션, 서 있으면 1번째 프레임, 공중에서는 2번째 프레임
-  // 우주선에 타면 안 보여요.
-  const blink = alien.hurt > 0 && Math.floor(clock * 12) % 2;
-  if (!blink && !alien.aboard) {
-    const frame = !alien.onGround ? 1 : alien.vx ? undefined : 0;
-    drawAnim(ANIMS.alien.walk, alien.walkTime, Math.round(alien.x), Math.round(alien.y), alien.flip, frame, ALIEN_SIZE);
+  drawAlien();
+  for (const f of fireballs) drawFireball(f.x, f.y);
+  for (const b of bullets) {
+    ctx.fillStyle = '#2b1d2e';
+    ctx.fillRect(Math.round(b.x) - 4, Math.round(b.y) - 4, 8, 8);
+    ctx.fillStyle = '#7ff7ff';
+    ctx.fillRect(Math.round(b.x) - 2, Math.round(b.y) - 2, 4, 4);
+  }
+  ctx.fillStyle = '#fff';
+  for (const s of sparks) {
+    const r = Math.round(4 + s.time * 60);
+    ctx.fillRect(Math.round(s.x) - r, Math.round(s.y) - 1, r * 2, 2);
+    ctx.fillRect(Math.round(s.x) - 1, Math.round(s.y) - r, 2, r * 2);
   }
 
   // 왼쪽 위: 목숨 (외계인 그림 + 픽셀 숫자)
   // 가운데 위: 스테이지 번호
-  // 오른쪽 위: 이번 스테이지에서 모은 배터리 / 모아야 할 배터리
+  // 오른쪽 위: 티라노 체력 막대
   drawAnim(ANIMS.alien.walk, 0, 4, 2, false, 0);
   drawPixelText(livesText, 'x' + lives, 30, 7);
   drawPixelText(stageText, 'STAGE ' + stage, W / 2, 7, 'center');
-  const batteryLabel = got + '/' + batteriesFor(stage);
-  drawPixelText(batteryText, batteryLabel, W - 6, 7, 'right');
-  ctx.drawImage(powerUpImg, W - 6 - batteryText.canvas.width - 20, 6);
+  drawHpBar();
 
   if (ship.state === 'waiting' || ship.state === 'landing') {
-    drawMessage('우주선이 왔어요! 타러 가요', null, false);
+    drawMessage('티라노를 물리쳤어요! 우주선을 타요', null, false);
   }
-  if (gameOver) drawMessage('티라노에게 잡혔어요!', stage + '스테이지 · 스페이스를 누르면 1스테이지부터 다시 시작', true);
-  if (allClear) drawMessage('모든 스테이지 클리어!', '배터리 12개까지 다 모았어요 · 스페이스를 누르면 처음부터', true);
+  if (gameOver) drawMessage('티라노에게 잡혔어요!', stage + '스테이지 · 스페이스나 클릭으로 1스테이지부터 다시', true);
+  if (allClear) drawMessage('모든 스테이지 클리어!', '티라노 10마리를 다 물리쳤어요 · 스페이스나 클릭으로 처음부터', true);
 }
-
+function drawHpBar() {
+  const bw = 120, bh = 10, x = W - 6 - bw, y = 9;
+  drawPixelText(rexText, 'REX', x - 6, 7, 'right');
+  ctx.fillStyle = '#2b1d2e';
+  ctx.fillRect(x - 2, y - 2, bw + 4, bh + 4);
+  ctx.fillStyle = '#4a3550';
+  ctx.fillRect(x, y, bw, bh);
+  ctx.fillStyle = '#ff5a3c';
+  ctx.fillRect(x, y, Math.round(bw * rex.hp / rex.maxHp), bh);
+  ctx.fillStyle = '#ffb199';
+  ctx.fillRect(x, y, Math.round(bw * rex.hp / rex.maxHp), 2);
+}
 function drawMessage(title, sub, dim) {
   if (dim) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
@@ -464,20 +626,22 @@ const PIXEL_FONT = {
   'A': ['010', '101', '111', '101', '101'],
   'G': ['111', '100', '101', '101', '111'],
   'E': ['111', '100', '111', '100', '111'],
+  'R': ['110', '101', '110', '101', '101'],
+  'X': ['101', '101', '010', '101', '101'],
   ' ': ['000', '000', '000', '000', '000'],
 };
 const PIXEL = 3; // 글자 한 칸 크기
 
 // 픽셀 글자를 진한 테두리 → 흰 글자 순서로 작은 캔버스에 그린 뒤, 한 번에 화면에 옮겨요.
 // 칸마다 바로 화면에 그리면 늘린 화면에서 칸 사이에 가는 줄이 생겨서 이렇게 해요.
-// 목숨·스테이지·배터리가 각자 작은 캔버스를 가져서, 글자가 바뀔 때만 다시 그려요.
+// 목숨·스테이지·티라노 글자가 각자 작은 캔버스를 가져서, 글자가 바뀔 때만 다시 그려요.
 function makeTextCanvas() {
   const c = document.createElement('canvas');
   return { canvas: c, ctx: c.getContext('2d'), text: '' };
 }
 const livesText = makeTextCanvas();
 const stageText = makeTextCanvas();
-const batteryText = makeTextCanvas();
+const rexText = makeTextCanvas();
 
 // align 이 'center' 면 x 가 글자 가운데, 'right' 면 x 가 글자 오른쪽 끝이에요.
 function drawPixelText(t, text, x, y, align = 'left') {
