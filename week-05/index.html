@@ -210,6 +210,30 @@ function resetGame() {
   counterReady = false;
   counterHit = false;
   scroll = 0;
+  playTime = 0;
+}
+
+// 시간 재기: 시작한 순간부터 티라노를 물리칠 때까지 (처음 화면은 빼요).
+// 최고 기록(가장 짧은 시간)은 이 브라우저에 저장돼서, 창을 닫았다 열어도 남아 있어요.
+const BEST_KEY = 'week05-rex-best-time';
+let playTime = 0, clearTime = 0, newBest = false;
+let bestTime = loadBest();
+function loadBest() {
+  try {
+    const v = parseFloat(localStorage.getItem(BEST_KEY));
+    return v > 0 ? v : null;
+  } catch (e) {
+    return null; // 저장을 못 쓰는 브라우저면 이번에 연 동안만 기억해요
+  }
+}
+function finishGame() {
+  win = true;
+  clearTime = playTime;
+  newBest = bestTime === null || clearTime < bestTime;
+  if (newBest) {
+    bestTime = clearTime;
+    try { localStorage.setItem(BEST_KEY, String(bestTime)); } catch (e) {}
+  }
 }
 
 function random(min, max) {
@@ -433,7 +457,7 @@ function updateRex(dt) {
   } else if (rex.state === 'hit') {
     if (animDone(ANIMS.rex.hit, rex.time)) setRex('death');
   } else if (rex.state === 'death') {
-    if (rex.time > 1.5) win = true;
+    if (rex.time > 1.5) finishGame();
   }
 
   // 그냥 몸에 닿는 건 괜찮아요. 돌진할 때만 몸에 부딪히면 맞아요.
@@ -624,6 +648,7 @@ function update(dt) {
     rex.time += dt;
     return;
   }
+  playTime += dt;
   if (phase === 'ground') {
     updateAlien(dt);
     updateRex(dt);
@@ -834,14 +859,14 @@ function draw() {
   }
 
   // 왼쪽 위: 목숨 = 외계인 그림 5개 (잃은 목숨은 흐리게)
-  // 가운데 위: 하늘에서 피한 횟수
-  // 오른쪽 위: 티라노 체력 막대
+  // 가운데 위: 티라노 체력 막대
+  // 오른쪽 위: 하늘에서 피한 횟수
   for (let i = 0; i < LIVES; i++) {
     ctx.globalAlpha = i < lives ? 1 : 0.25;
     drawAnim(ANIMS.alien.walk, 0, 4 + i * 22, 2, false, 0);
   }
   ctx.globalAlpha = 1;
-  if (phase === 'sky') drawPixelText(dodgeText, 'DODGE ' + dodged + '/' + DODGE_GOAL, W / 2, 7, 'center');
+  if (phase === 'sky') drawPixelText(dodgeText, 'DODGE ' + dodged + '/' + DODGE_GOAL, W - 6, 7, 'right');
   drawHpBar();
 
   if (phase === 'rising') drawMessage('하늘로!', null, false);
@@ -850,8 +875,20 @@ function draw() {
   }
   if (phase === 'sky' && counterReady) drawCounterButton();
   if (gameOver) drawMessage('티라노에게 잡혔어요!', '스페이스나 클릭으로 다시 시작', true);
-  if (win) drawMessage('티라노를 물리쳤어요!', '스페이스나 클릭으로 처음부터', true);
+  if (win) drawWinMessage();
   if (!started) drawStartGuide();
+}
+function drawWinMessage() {
+  const time = '클리어 시간 ' + clearTime.toFixed(1) + '초';
+  const best = newBest ? '새 최고 기록!' : '최고 기록 ' + bestTime.toFixed(1) + '초';
+  drawMessage('티라노를 물리쳤어요!', time + ' · ' + best, true);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.font = '16px sans-serif';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 4;
+  ctx.fillText('스페이스나 클릭으로 처음부터', W / 2, H / 2 + 44);
+  ctx.shadowBlur = 0;
 }
 function drawStartGuide() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
@@ -870,9 +907,11 @@ function drawStartGuide() {
   ctx.fillText(START_GUIDE.go, W / 2, 250);
   ctx.shadowBlur = 0;
 }
+// 티라노 체력 막대: 가운데 위, 크게. 왼쪽에 REX 글자.
 function drawHpBar() {
-  const bw = 160, bh = 10, x = W - 6 - bw, y = 9;
-  drawPixelText(rexText, 'REX', x - 6, 7, 'right');
+  const bw = 240, bh = 16, label = 3 * 4 * PIXEL + 2 + 8; // REX 글자 폭 + 띄우기
+  const x = Math.round(W / 2 - (label + bw) / 2) + label, y = 8;
+  drawPixelText(rexText, 'REX', x - 8, 9, 'right');
   ctx.fillStyle = '#2b1d2e';
   ctx.fillRect(x - 2, y - 2, bw + 4, bh + 4);
   ctx.fillStyle = '#4a3550';
@@ -880,7 +919,7 @@ function drawHpBar() {
   ctx.fillStyle = '#ff5a3c';
   ctx.fillRect(x, y, Math.round(bw * rex.hp / REX_HP), bh);
   ctx.fillStyle = '#ffb199';
-  ctx.fillRect(x, y, Math.round(bw * rex.hp / REX_HP), 2);
+  ctx.fillRect(x, y, Math.round(bw * rex.hp / REX_HP), 3);
   ctx.fillStyle = '#2b1d2e'; // 절반 자리 표시 (여기까지 깎으면 하늘로)
   ctx.fillRect(x + bw / 2 - 1, y, 2, bh);
 }

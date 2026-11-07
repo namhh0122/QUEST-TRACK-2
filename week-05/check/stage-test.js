@@ -13,7 +13,8 @@
 //   6. 체력 0 → 티라노를 물리쳤어요
 //   7. 타격감: 칼로 맞힐 때는 화면이 안 흔들리고, 맞으면 크게, 반격은 더 크게 흔들리고 번쩍이는지
 //   8. 처음 화면 안내: 짧은지, 할 일이 있는지, 클릭·스페이스로 시작하는지
-// 사진 다섯 장을 check/shots 에 찍어요: 처음 화면 안내(#start), 땅에서 칼 휘두르기(#ground), 하늘에서 불꽃 피하기(#sky), 돌진 빨간 예고(#warn), 맞아서 번쩍(#hit)
+//   9. 시간 재기: 처음 화면은 빼고 재는지, 이기면 클리어 시간과 최고 기록(가장 짧은 시간)이 남는지
+// 사진 여섯 장을 check/shots 에 찍어요: 처음 화면 안내(#start), 이긴 화면 기록(#win), 땅에서 칼 휘두르기(#ground), 하늘에서 불꽃 피하기(#sky), 돌진 빨간 예고(#warn), 맞아서 번쩍(#hit)
 //
 // check/shots 와 check/tmp 는 커밋하지 않아요 (.gitignore).
 
@@ -49,6 +50,9 @@ const TEST_SCRIPT = `<script>
   // 화면 없는 브라우저는 화면 갱신이 느려서, 게임을 1/60초씩 직접 돌려요.
   const step = seconds => { for (let t = 0; t < seconds; t += 1 / 60) update(1 / 60); };
   started = true; // 처음 화면 안내는 넘기고 시험해요 (안내는 8번에서 따로 시험)
+  // 최고 기록은 시험용 브라우저에도 남아서, 시험 전에 지워요
+  const clearBest = () => { try { localStorage.removeItem(BEST_KEY); } catch (e) {} bestTime = null; };
+  clearBest();
   function fresh() { resetGame(); freezeRex(); alien.hurt = 0; }
   // 외계인을 티라노 바로 앞에 세우고 티라노 쪽을 클릭해서 한 번 베요
   function slashRex() {
@@ -238,10 +242,52 @@ const TEST_SCRIPT = `<script>
   key('keydown', 'Space'); key('keyup', 'Space');
   check('잡힌 뒤 다시 시작할 때는 처음 화면 없이 바로', started && !gameOver, '');
 
-  // 사진용 장면. 주소 뒤 #start / #ground / #sky / #warn / #hit 으로 골라요. 사진 찍을 때까지 그대로 있게 게임을 멈춰요.
+  // 9. 시간 재기와 최고 기록
+  // 티라노를 물리치기까지 seconds 초 걸리게 해요 (쓰러지는 그림 1.7초쯤은 따로 더해져요)
+  function winAfter(seconds) {
+    fresh();
+    skyDone = true;
+    playTime = seconds;
+    rex.hp = SWORD_DAMAGE;
+    slashRex();
+    for (let i = 0; i < 300 && !win; i++) step(1 / 60);
+    return clearTime;
+  }
+  clearBest();
+  resetGame();
+  started = false;
+  step(2);
+  check('처음 화면에서는 시간이 안 감', playTime === 0, playTime.toFixed(1) + '초');
+  started = true;
+  step(2);
+  check('시작하면 시간이 감', Math.abs(playTime - 2) < 0.05, playTime.toFixed(1) + '초');
+  const t1 = winAfter(60);
+  check('이기면 클리어 시간이 나오고, 첫 기록은 새 최고 기록', win && t1 > 60 && t1 < 63 && newBest && bestTime === t1, '클리어 ' + t1.toFixed(1) + '초, 최고 ' + (bestTime && bestTime.toFixed(1)));
+  let saved = null;
+  try { saved = parseFloat(localStorage.getItem(BEST_KEY)); } catch (e) {}
+  check('최고 기록이 브라우저에 저장됨', saved === t1, '저장된 값 ' + saved);
+  const t2 = winAfter(90);
+  check('더 느리면 최고 기록은 그대로', !newBest && bestTime === t1, '클리어 ' + t2.toFixed(1) + '초, 최고 ' + bestTime.toFixed(1));
+  const t3 = winAfter(40);
+  check('더 빠르면 새 최고 기록', newBest && bestTime === t3, '클리어 ' + t3.toFixed(1) + '초, 최고 ' + bestTime.toFixed(1));
+  fresh();
+  gameOver = true;
+  const bestBeforeLose = bestTime;
+  key('keydown', 'Space'); key('keyup', 'Space');
+  check('잡히면 기록이 안 남고, 다시 하면 시간이 0 부터', bestTime === bestBeforeLose && playTime === 0, '');
+  clearBest();
+
+  // 사진용 장면. 주소 뒤 #start / #ground / #sky / #warn / #hit / #win 으로 골라요. 사진 찍을 때까지 그대로 있게 게임을 멈춰요.
   resetGame();
   if (location.hash === '#start') {
     started = false;
+  } else if (location.hash === '#win') {
+    // 사진에서는 "클리어 시간 83.4초 · 최고 기록 75.2초" 가 보이게 (저장된 기록은 지워 둬요)
+    bestTime = 75.2;
+    playTime = 83.4;
+    finishGame();
+    clearBest();
+    bestTime = 75.2;
   } else if (location.hash === '#sky') {
     rex.hp = 50; startRising(); step(RISE_TIME + 0.1);
     dodged = 3; lives = 4;
@@ -305,7 +351,7 @@ function main() {
   const dom = runBrowser(browser, ['--dump-dom', pathToFileUrl(file)]);
   const m = dom.match(/<pre id="__stage"[^>]*>([\s\S]*?)<\/pre>/);
   const shots = [];
-  for (const scene of ['start', 'ground', 'sky', 'warn', 'hit']) {
+  for (const scene of ['start', 'ground', 'sky', 'warn', 'hit', 'win']) {
     const shot = path.join(SHOTS_DIR, `my-game-${scene}.png`);
     runBrowser(browser, [`--screenshot=${shot}`, pathToFileUrl(file) + '#' + scene]);
     shots.push(shot);
