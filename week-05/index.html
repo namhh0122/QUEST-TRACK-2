@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>내 게임 · 외계인의 배터리 모으기</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  body { display: flex; justify-content: center; align-items: center; font-family: sans-serif; }
+  canvas { image-rendering: pixelated; }
+  p { position: fixed; bottom: 8px; left: 0; right: 0; margin: 0; text-align: center; color: #fff; text-shadow: 0 1px 2px #000; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<p>A D 이동 · 스페이스 점프 · 배터리를 다 모으면 우주선을 타고 다음 스테이지로 (티라노 머리를 밟으면 쓰러져요 · 처음 키를 누르면 음악이 나와요)</p>
+<script>
+// ===== 에셋 불러오기 =====
+// 그림은 assets/images, 소리는 assets/sounds 에 있어요.
+const IMG = 'assets/images/';
+const SND = 'assets/sounds/';
+
+// 애니메이션 정보 (drop.json 에서 옮김). 시트는 프레임이 가로 한 줄로 이어져 있어요.
+const ANIMS = {
+  alien: { // 24×24
+    walk:   { file: 'pink-alien_walk.png',           fw: 24, fh: 24, frames: 2, fps: 10, loop: true },
+  },
+  rex: {   // 80×62
+    idle:   { file: 'baby-tyrannosaurus_idle.png',   fw: 80, fh: 62, frames: 6, fps: 10, loop: true },
+    walk:   { file: 'baby-tyrannosaurus_walk.png',   fw: 80, fh: 62, frames: 5, fps: 10, loop: true },
+    attack: { file: 'baby-tyrannosaurus_attack.png', fw: 80, fh: 62, frames: 3, fps: 10, loop: false },
+    hit:    { file: 'baby-tyrannosaurus_hit.png',    fw: 80, fh: 62, frames: 2, fps: 10, loop: false },
+    death:  { file: 'baby-tyrannosaurus_death.png',  fw: 80, fh: 62, frames: 6, fps: 10, loop: false },
+  },
+};
+const TILE = 32; // 지형 타일 한 칸 크기
+
+function loadImage(file) {
+  const img = new Image();
+  img.src = IMG + file;
+  return img;
+}
+
+// 캐릭터·적 시트
+for (const group of Object.values(ANIMS)) {
+  for (const anim of Object.values(group)) anim.img = loadImage(anim.file);
+}
+const powerUpImg = loadImage('power-up.png');                    // 16×16 배터리
+const shipImg = loadImage('dart-ship.png');                      // 98×75 우주선 (위를 봐요)
+const tilesetImg = loadImage('palm-island-tileset.png');         // 544×160, 32×32 타일
+const backgroundImg = loadImage('space-background-darkpurple.png'); // 256×256, 바둑판처럼 깔기
+
+// 소리
+const sounds = {
+  portal: new Audio(SND + 'portal.wav'), // 배터리 먹을 때
+};
+const bgm = new Audio(SND + 'epic-space-shooter.mp3');
+bgm.loop = true;   // 끊김 없이 반복
+bgm.volume = 0.5;
+
+function playSound(name) {
+  const s = sounds[name].cloneNode(); // 겹쳐서 여러 번 나도록 복사해서 재생
+  s.volume = 0.6;
+  s.play();
+}
+
+// 브라우저는 사용자가 키를 누르거나 클릭하기 전에는 소리를 못 내게 해서, 처음 누를 때 음악을 켜요.
+function startMusic() {
+  if (bgm.paused) bgm.play();
+}
+addEventListener('keydown', startMusic);
+addEventListener('pointerdown', startMusic);
+
+// ===== 그리기 도구 =====
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 640, H = 360; // 게임 세상 크기. 위치·속도는 모두 이 크기 기준이에요.
+
+// 창 크기에 맞춰 게임 세상을 비율대로 늘려서 그려요. 창 비율이 다르면 남는 곳은 검게 둬요.
+function fitToWindow() {
+  const scale = Math.min(innerWidth / W, innerHeight / H);
+  const dpr = devicePixelRatio || 1;
+  canvas.style.width = W * scale + 'px';
+  canvas.style.height = H * scale + 'px';
+  canvas.width = Math.round(W * scale * dpr);
+  canvas.height = Math.round(H * scale * dpr);
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false; // 픽셀 아트가 흐려지지 않게 (최근접 필터). 캔버스 크기를 바꾸면 풀려서 다시 켜요.
+}
+addEventListener('resize', fitToWindow);
+fitToWindow();
+
+// 애니메이션의 지금 프레임 그리기. time 은 이 애니메이션을 시작한 뒤 지난 초.
+// frame 을 주면 시간과 상관없이 그 프레임을 그려요. size 를 주면 그 배율로 키워서 그려요.
+function drawAnim(anim, time, x, y, flip, frame, size = 1) {
+  if (frame === undefined) {
+    frame = Math.floor(time * anim.fps);
+    frame = anim.loop ? frame % anim.frames : Math.min(frame, anim.frames - 1);
+  }
+  const w = anim.fw * size, h = anim.fh * size;
+  ctx.save();
+  if (flip) {
+    ctx.translate(x + w, y);
+    ctx.scale(-1, 1);
+    x = 0; y = 0;
+  }
+  ctx.drawImage(anim.img, frame * anim.fw, 0, anim.fw, anim.fh, x, y, w, h);
+  ctx.restore();
+}
+
+function animDone(anim, time) {
+  return time * anim.fps >= anim.frames;
+}
+
+// 타일셋의 (열, 줄) 칸 하나 그리기
+function drawTile(col, row, x, y) {
+  ctx.drawImage(tilesetImg, col * TILE, row * TILE, TILE, TILE, x, y, TILE, TILE);
+}
+
+function drawBackground() {
+  for (let y = 0; y < H; y += 256)
+    for (let x = 0; x < W; x += 256)
+      ctx.drawImage(backgroundImg, x, y);
+}
+
+// ===== 게임 =====
+const GROUND_Y = H - TILE * 2; // 땅 윗면
+const GRAVITY = 1000;
+const SPEED = 160;
+const JUMP = 450;        // 약 100px 높이까지 뛰어요. 떠 있는 땅은 80px 씩 위에 있어요.
+const ALIEN_SIZE = 2;    // 외계인 그림(24×24)을 2배로 키워서 티라노 몸집과 비슷하게
+const ALIEN = 24 * ALIEN_SIZE;
+const LIVES = 3;
+
+// 스테이지: 1스테이지는 배터리 3개, 한 스테이지마다 1개씩 늘어서 10스테이지는 12개 (마지막)
+const FIRST_BATTERIES = 3;
+const MAX_BATTERIES = 12;
+const LAST_STAGE = MAX_BATTERIES - FIRST_BATTERIES + 1;
+function batteriesFor(stage) {
+  return FIRST_BATTERIES + stage - 1;
+}
+
+// 하늘에 떠 있는 땅 (야자섬 타일셋 맨 아랫줄의 얇은 땅). 아래에서는 뚫고 올라가고, 위에서 내려올 때만 밟혀요.
+const PLATFORMS = [
+  { x: 64,  y: 216, w: 4 * TILE }, { x: 448, y: 216, w: 4 * TILE },
+  { x: 256, y: 136, w: 4 * TILE },
+  { x: 32,  y: 56,  w: 3 * TILE }, { x: 512, y: 56,  w: 3 * TILE },
+];
+// 외계인이 서 있을 수 있는 곳 (바닥 땅 + 떠 있는 땅)
+const SURFACES = [{ x: 0, y: GROUND_Y, w: W }, ...PLATFORMS];
+
+let alien, rex, ship, batteries, got, stage, lives, gameOver, allClear;
+
+function newRex(x) {
+  return { x, y: GROUND_Y - 62, dir: -1, state: 'walk', time: 0, wait: 0, cooldown: 0 };
+}
+
+function resetGame() {
+  lives = LIVES;
+  gameOver = false;
+  allClear = false;
+  startStage(1);
+}
+
+// 스테이지를 새로 시작해요. 모은 배터리 수는 0 으로 돌아가요.
+function startStage(n) {
+  stage = n;
+  got = 0;
+  alien = { x: 40, y: GROUND_Y - ALIEN, vx: 0, vy: 0, onGround: true, flip: false, walkTime: 0, hurt: 0, push: 0, aboard: false };
+  rex = newRex(W - 120);
+  ship = { state: 'hidden', x: 0, y: 0, time: 0 };
+  spawnBatteries(batteriesFor(n));
+}
+
+const BATTERY = 32;      // 배터리 그림(16×16)을 2배로 키워서 그려요
+const BATTERY_RISE = 70; // 배터리는 밟을 수 있는 땅 위로 이 높이 안에서만 나와요 (점프로 닿는 높이)
+
+function random(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+// 배터리를 곳곳에 무작위로 뿌려요.
+function spawnBatteries(count) {
+  batteries = [];
+  const total = SURFACES.reduce((sum, s) => sum + s.w, 0);
+  for (let tries = 0; batteries.length < count && tries < 2000; tries++) {
+    let pick = random(0, total);
+    const s = SURFACES.find(s => (pick -= s.w) < 0) || SURFACES[0];
+    const x = random(s.x + 4, s.x + s.w - BATTERY - 4);
+    const y = Math.max(30, s.y - BATTERY - 4 - random(0, BATTERY_RISE));
+    const b = { x, y, phase: random(0, 6) };
+    const tooClose = p => Math.hypot(p.x - b.x, p.y - b.y) < 48;
+    const nearAlien = Math.hypot(alien.x + ALIEN / 2 - b.x, alien.y + ALIEN / 2 - b.y) < 60;
+    const inPlatform = PLATFORMS.some(p => b.x + BATTERY > p.x && b.x < p.x + p.w && b.y + BATTERY > p.y - 4 && b.y < p.y + TILE);
+    const onHud = b.y < 40 && (b.x < 110 || b.x > W - 120 || Math.abs(b.x - W / 2) < 70); // 위쪽 글자 자리
+    if (batteries.some(tooClose) || nearAlien || inPlatform || onHud) continue; // 겹치면 다시 뽑기
+    batteries.push(b);
+  }
+}
+
+const keys = {};
+addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.repeat) {
+    if (gameOver || allClear) resetGame();
+    else if (alien.onGround && !alien.aboard) {
+      alien.vy = -JUMP;
+      alien.onGround = false;
+    }
+  }
+  keys[e.code] = true;
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+// 키를 누른 채 다른 창으로 가면 keyup 이 안 와서 계속 달려요. 그래서 창을 떠나면 키를 모두 놓아요.
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+// 부딪힘을 볼 상자들. 그림의 빈칸은 빼고 실제로 보이는 몸통만 써요.
+function alienBox() {
+  return { x: alien.x + 3 * ALIEN_SIZE, y: alien.y + 2 * ALIEN_SIZE, w: 18 * ALIEN_SIZE, h: 22 * ALIEN_SIZE };
+}
+// 티라노는 오른쪽을 보는 그림이라, 왼쪽으로 갈 때는 상자도 뒤집어요.
+function rexBox() {
+  const reach = rex.state === 'attack' ? 12 : 0; // 물 때는 앞으로 더 나와요
+  const left = 18, right = 62 + reach;
+  const x = rex.dir > 0 ? rex.x + left : rex.x + 80 - right;
+  return { x, y: rex.y + 20, w: right - left, h: 42 };
+}
+function overlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function setRex(state) {
+  if (rex.state !== state) { rex.state = state; rex.time = 0; }
+}
+
+function updateAlien(dt) {
+  const right = keys.KeyD || keys.ArrowRight, left = keys.KeyA || keys.ArrowLeft;
+  if (alien.push > 0) alien.push -= dt; // 맞고 튕겨 나가는 동안은 키가 안 먹어요
+  else alien.vx = (right ? SPEED : 0) - (left ? SPEED : 0);
+  if (alien.vx) alien.flip = alien.vx < 0;
+  alien.x = Math.max(0, Math.min(W - ALIEN, alien.x + alien.vx * dt));
+
+  const prevFeet = alien.y + ALIEN;
+  alien.vy += GRAVITY * dt;
+  alien.y += alien.vy * dt;
+  const feet = alien.y + ALIEN;
+
+  // 내려오다가 발이 땅 윗면을 지나가면 그 위에 세워요. 땅 끝에서 걸어 나가면 떨어져요.
+  alien.onGround = false;
+  if (alien.vy >= 0) {
+    for (const s of SURFACES) {
+      const over = alien.x + ALIEN - 4 * ALIEN_SIZE > s.x && alien.x + 4 * ALIEN_SIZE < s.x + s.w;
+      if (over && prevFeet <= s.y + 1 && feet >= s.y) {
+        alien.y = s.y - ALIEN;
+        alien.vy = 0;
+        alien.onGround = true;
+        break;
+      }
+    }
+  }
+  // 바닥 땅은 무슨 일이 있어도 뚫고 내려가지 않게 해요.
+  if (feet > GROUND_Y) {
+    alien.y = GROUND_Y - ALIEN;
+    alien.vy = 0;
+    alien.onGround = true;
+  }
+  if (alien.onGround && alien.vx) alien.walkTime += dt;
+  if (alien.hurt > 0) alien.hurt -= dt;
+  return prevFeet;
+}
+
+function updateRex(dt, alienPrevFeet) {
+  rex.time += dt;
+  if (rex.cooldown > 0) rex.cooldown -= dt;
+  const rexSpeed = Math.min(90 + (stage - 1) * 10, 180); // 스테이지가 올라갈수록 빨라져요
+
+  if (rex.state === 'walk') {
+    rex.x += rex.dir * rexSpeed * dt;
+    if (rex.x < -10 || rex.x > W - 70) { // 끝에 닿으면 잠깐 쉬었다가 돌아서요
+      rex.x = Math.max(-10, Math.min(W - 70, rex.x));
+      setRex('idle');
+      rex.wait = 0.6;
+    }
+    // 외계인이 바로 앞 바닥에 있으면 물어요
+    const front = rex.dir > 0 ? alien.x - (rex.x + 60) : rex.x + 20 - (alien.x + ALIEN);
+    if (rex.cooldown <= 0 && front > -10 && front < 24 && alien.y + ALIEN > GROUND_Y - 30) setRex('attack');
+  } else if (rex.state === 'idle') {
+    rex.wait -= dt;
+    if (rex.wait <= 0) { rex.dir = -rex.dir; setRex('walk'); }
+  } else if (rex.state === 'attack') {
+    if (animDone(ANIMS.rex.attack, rex.time)) { rex.cooldown = 0.8; setRex('walk'); }
+  } else if (rex.state === 'hit') {
+    if (animDone(ANIMS.rex.hit, rex.time)) setRex('death');
+  } else if (rex.state === 'death') {
+    // 다 쓰러지고 3초 뒤, 외계인에게서 먼 쪽 끝에서 새 티라노가 나와요
+    if (rex.time > 3) {
+      const x = alien.x < W / 2 ? W - 70 : -10;
+      rex = newRex(x);
+      rex.dir = x < 0 ? 1 : -1;
+    }
+  }
+  if (rex.state === 'hit' || rex.state === 'death' || alien.aboard) return;
+
+  const a = alienBox(), r = rexBox();
+  if (!overlap(a, r)) return;
+  // 위에서 떨어지며 머리를 밟으면 티라노가 쓰러져요
+  if (alien.vy > 0 && alienPrevFeet <= r.y + 8) {
+    setRex('hit');
+    alien.vy = -JUMP * 0.7;
+    return;
+  }
+  if (alien.hurt > 0) return; // 맞은 뒤 잠깐은 다시 안 맞아요
+  lives--;
+  alien.hurt = 1.5;
+  alien.push = 0.3;
+  alien.vx = (a.x + a.w / 2 < r.x + r.w / 2 ? -1 : 1) * 220;
+  alien.vy = -250;
+  alien.onGround = false;
+  if (lives <= 0) gameOver = true;
+}
+
+// 우주선: 배터리를 다 모으면 바닥 가운데로 내려와요.
+// 외계인이 닿으면 태우고 위로 날아가서 다음 스테이지가 시작돼요.
+const SHIP_W = 98, SHIP_H = 75;
+function updateShip(dt) {
+  ship.time += dt;
+  if (ship.state === 'hidden') {
+    if (got < batteriesFor(stage)) return;
+    ship.state = 'landing';
+    ship.time = 0;
+    ship.x = (W - SHIP_W) / 2; // 낮게 떠 있는 땅 두 개 사이 빈자리 (양쪽은 땅에 가려요)
+    ship.y = -SHIP_H;
+    playSound('portal');
+  } else if (ship.state === 'landing') {
+    const landY = GROUND_Y - SHIP_H;
+    ship.y = Math.min(landY, ship.y + 220 * dt);
+    if (ship.y === landY) ship.state = 'waiting';
+  } else if (ship.state === 'waiting') {
+    const door = { x: ship.x + 20, y: ship.y + 10, w: SHIP_W - 40, h: SHIP_H - 10 };
+    if (overlap(alienBox(), door)) {
+      alien.aboard = true;
+      ship.state = 'leaving';
+      ship.time = 0;
+      playSound('portal');
+    }
+  } else if (ship.state === 'leaving') {
+    ship.y -= (60 + ship.time * 500) * dt; // 점점 빨라지며 위로
+    if (ship.y < -SHIP_H - 20) {
+      if (stage >= LAST_STAGE) allClear = true;
+      else startStage(stage + 1);
+    }
+  }
+}
+
+function update(dt) {
+  if (gameOver || allClear) {
+    rex.time += dt;
+    return;
+  }
+  const prevFeet = alien.aboard ? alien.y + ALIEN : updateAlien(dt);
+  updateRex(dt, prevFeet);
+  updateShip(dt);
+
+  // 배터리 먹기
+  const a = alienBox();
+  batteries = batteries.filter(b => {
+    const hit = overlap(a, { x: b.x + 4, y: b.y + 2, w: BATTERY - 8, h: BATTERY - 4 });
+    if (hit) { got++; playSound('portal'); }
+    return !hit;
+  });
+}
+
+// 타일셋 맨 윗줄 왼쪽 3칸은 풀 덮인 땅(왼끝·가운데·오른끝), 둘째 줄은 그 아래 흙이에요.
+// 맨 아랫줄(5번째 줄) 왼쪽 3칸은 얇게 떠 있는 땅이에요.
+function edgeCol(x, left, right) {
+  return x === left ? 0 : x + TILE >= right ? 2 : 1;
+}
+
+let clock = 0;
+function draw() {
+  drawBackground();
+
+  for (let x = 0; x < W; x += TILE) {
+    const col = edgeCol(x, 0, W);
+    drawTile(col, 0, x, GROUND_Y);
+    drawTile(col, 1, x, GROUND_Y + TILE);
+  }
+  for (const p of PLATFORMS) {
+    for (let x = p.x; x < p.x + p.w; x += TILE) drawTile(edgeCol(x, p.x, p.x + p.w), 4, x, p.y);
+  }
+
+  // 배터리는 위아래로 살짝 둥실둥실
+  for (const b of batteries) ctx.drawImage(powerUpImg, Math.round(b.x), Math.round(b.y + Math.sin(clock * 3 + b.phase) * 2), BATTERY, BATTERY);
+
+  // 쓰러진 티라노는 마지막 1초 동안 깜빡이다 사라져요
+  const fading = rex.state === 'death' && rex.time > 2 && Math.floor(clock * 10) % 2;
+  if (!fading) drawAnim(ANIMS.rex[rex.state], rex.time, Math.round(rex.x), rex.y, rex.dir < 0);
+
+  if (ship.state !== 'hidden') {
+    // 기다리는 동안은 살짝 위아래로 떠 있어요
+    const bob = ship.state === 'waiting' ? Math.round(Math.sin(clock * 4) * 2) : 0;
+    ctx.drawImage(shipImg, Math.round(ship.x), Math.round(ship.y) + bob);
+  }
+
+  // 외계인: 땅에서 움직일 때만 걷기 애니메이션, 서 있으면 1번째 프레임, 공중에서는 2번째 프레임
+  // 우주선에 타면 안 보여요.
+  const blink = alien.hurt > 0 && Math.floor(clock * 12) % 2;
+  if (!blink && !alien.aboard) {
+    const frame = !alien.onGround ? 1 : alien.vx ? undefined : 0;
+    drawAnim(ANIMS.alien.walk, alien.walkTime, Math.round(alien.x), Math.round(alien.y), alien.flip, frame, ALIEN_SIZE);
+  }
+
+  // 왼쪽 위: 목숨 (외계인 그림 + 픽셀 숫자)
+  // 가운데 위: 스테이지 번호
+  // 오른쪽 위: 이번 스테이지에서 모은 배터리 / 모아야 할 배터리
+  drawAnim(ANIMS.alien.walk, 0, 4, 2, false, 0);
+  drawPixelText(livesText, 'x' + lives, 30, 7);
+  drawPixelText(stageText, 'STAGE ' + stage, W / 2, 7, 'center');
+  const batteryLabel = got + '/' + batteriesFor(stage);
+  drawPixelText(batteryText, batteryLabel, W - 6, 7, 'right');
+  ctx.drawImage(powerUpImg, W - 6 - batteryText.canvas.width - 20, 6);
+
+  if (ship.state === 'waiting' || ship.state === 'landing') {
+    drawMessage('우주선이 왔어요! 타러 가요', null, false);
+  }
+  if (gameOver) drawMessage('티라노에게 잡혔어요!', stage + '스테이지 · 스페이스를 누르면 1스테이지부터 다시 시작', true);
+  if (allClear) drawMessage('모든 스테이지 클리어!', '배터리 12개까지 다 모았어요 · 스페이스를 누르면 처음부터', true);
+}
+
+function drawMessage(title, sub, dim) {
+  if (dim) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 4;
+  const y = dim ? H / 2 - 20 : 70;
+  ctx.font = 'bold ' + (dim ? 28 : 18) + 'px sans-serif';
+  ctx.fillText(title, W / 2, y);
+  if (sub) {
+    ctx.font = '16px sans-serif';
+    ctx.fillText(sub, W / 2, y + 34);
+  }
+  ctx.shadowBlur = 0;
+}
+
+// 점수용 픽셀 글자 (연습 게임과 같은 글자). 한 글자는 가로 3칸 × 세로 5칸이고, 1 이 칠할 칸이에요.
+const PIXEL_FONT = {
+  '0': ['111', '101', '101', '101', '111'],
+  '1': ['010', '110', '010', '010', '111'],
+  '2': ['111', '001', '111', '100', '111'],
+  '3': ['111', '001', '111', '001', '111'],
+  '4': ['101', '101', '111', '001', '001'],
+  '5': ['111', '100', '111', '001', '111'],
+  '6': ['111', '100', '111', '101', '111'],
+  '7': ['111', '001', '010', '010', '010'],
+  '8': ['111', '101', '111', '101', '111'],
+  '9': ['111', '101', '111', '001', '111'],
+  'x': ['000', '101', '010', '101', '000'],
+  '/': ['001', '001', '010', '100', '100'],
+  'S': ['111', '100', '111', '001', '111'],
+  'T': ['111', '010', '010', '010', '010'],
+  'A': ['010', '101', '111', '101', '101'],
+  'G': ['111', '100', '101', '101', '111'],
+  'E': ['111', '100', '111', '100', '111'],
+  ' ': ['000', '000', '000', '000', '000'],
+};
+const PIXEL = 3; // 글자 한 칸 크기
+
+// 픽셀 글자를 진한 테두리 → 흰 글자 순서로 작은 캔버스에 그린 뒤, 한 번에 화면에 옮겨요.
+// 칸마다 바로 화면에 그리면 늘린 화면에서 칸 사이에 가는 줄이 생겨서 이렇게 해요.
+// 목숨·스테이지·배터리가 각자 작은 캔버스를 가져서, 글자가 바뀔 때만 다시 그려요.
+function makeTextCanvas() {
+  const c = document.createElement('canvas');
+  return { canvas: c, ctx: c.getContext('2d'), text: '' };
+}
+const livesText = makeTextCanvas();
+const stageText = makeTextCanvas();
+const batteryText = makeTextCanvas();
+
+// align 이 'center' 면 x 가 글자 가운데, 'right' 면 x 가 글자 오른쪽 끝이에요.
+function drawPixelText(t, text, x, y, align = 'left') {
+  if (text !== t.text) {
+    t.text = text;
+    t.canvas.width = text.length * 4 * PIXEL + 2;
+    t.canvas.height = 5 * PIXEL + 2;
+    for (const [color, grow] of [['#2b1d2e', 1], ['#fff', 0]]) {
+      t.ctx.fillStyle = color;
+      [...text].forEach((ch, i) => {
+        const rows = PIXEL_FONT[ch];
+        if (!rows) return;
+        rows.forEach((row, r) => {
+          for (let c = 0; c < 3; c++) {
+            if (row[c] !== '1') continue;
+            const px = 1 + i * 4 * PIXEL + c * PIXEL;
+            const py = 1 + r * PIXEL;
+            t.ctx.fillRect(px - grow, py - grow, PIXEL + grow * 2, PIXEL + grow * 2);
+          }
+        });
+      });
+    }
+  }
+  const w = t.canvas.width;
+  if (align === 'center') x -= Math.round(w / 2);
+  if (align === 'right') x -= w;
+  ctx.drawImage(t.canvas, x - 1, y - 1);
+}
+
+resetGame();
+
+let last = performance.now();
+function loop(now) {
+  // 첫 프레임은 now 가 last 보다 앞설 수 있어서, 지난 시간이 마이너스가 되지 않게 0 아래는 0으로 둬요.
+  const dt = Math.max(0, Math.min((now - last) / 1000, 0.05));
+  last = now;
+  clock += dt;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
