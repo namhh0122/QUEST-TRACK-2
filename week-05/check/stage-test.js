@@ -119,6 +119,11 @@ const TEST_SCRIPT = `<script>
   check('불꽃에 맞으면 터지는 그림이 나옴', fire.boomed, '');
   const charge = attackTest('charge', 60);
   check('돌진: 예고 동안은 안 맞고, 달려와서 목숨 -1', charge.safeInWindup && charge.hit, '예고 ' + ATTACKS.charge.windup + '초');
+  fresh();
+  rex.x = 300; rex.state = 'walk'; rex.think = 999;
+  alien.x = rex.x + REX_W / 2 - ALIEN / 2;
+  step(1);
+  check('걷거나 서 있는 티라노 몸에 닿으면 안 맞음', lives === LIVES, '목숨 ' + lives);
 
   // 5. 하늘 싸움
   fresh();

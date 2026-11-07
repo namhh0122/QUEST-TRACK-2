@@ -424,8 +424,8 @@ function updateRex(dt) {
     if (rex.time > 1.5) win = true;
   }
 
-  // 몸에 닿아도 맞아요 (쓰러진 티라노는 빼고)
-  if (rexAlive() && overlap(alienBox(), rexBox())) hurtAlien(rexMid);
+  // 그냥 몸에 닿는 건 괜찮아요. 돌진할 때만 몸에 부딪히면 맞아요.
+  if (rex.state === 'charge' && overlap(alienBox(), rexBox())) hurtAlien(rexMid);
 }
 function restRex(seconds) {
   rex.wait = seconds;
