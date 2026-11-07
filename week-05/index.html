@@ -12,7 +12,7 @@
 </head>
 <body>
 <canvas id="game"></canvas>
-<p>A D 이동 · 스페이스 점프 · 마우스 왼쪽 클릭 칼 · Q 구르기 (구르는 동안 안 맞아요) · 티라노 머리 위에 "!" 가 뜨면 공격이 와요</p>
+<p>A D 이동 · 스페이스 점프 · 클릭 칼 · Q 구르기</p>
 <script>
 // ===== 에셋 불러오기 =====
 // 그림은 assets/images, 소리는 assets/sounds 에 있어요.
@@ -177,6 +177,15 @@ let alien, rex, ship, fireballs, booms, sparks, lives, gameOver, win;
 let phase, phaseTime, skyDone, dodged, counterReady, counterHit, scroll;
 let aimX = W / 2, aimY = H / 2; // 마우스가 가리키는 곳 (게임 세상 좌표)
 
+// 처음 화면 안내: 할 일만 짧게. 클릭하거나 스페이스를 누르면 시작해요.
+// 다시 시작할 때(잡혔을 때, 이겼을 때)는 이 화면 없이 바로 시작해요.
+let started = false;
+const START_GUIDE = {
+  title: '티라노를 칼로 쓰러뜨려요!',
+  lines: ['빨간 표시가 뜨면 피해요', 'A D 이동 · 스페이스 점프 · 클릭 칼 · Q 구르기'],
+  go: '클릭하거나 스페이스를 누르면 시작',
+};
+
 function newRex(x) {
   // 시작하면 티라노는 1초 동안 가만히 있다가 움직여요.
   return { x, y: GROUND_Y - REX_H, dir: -1, state: 'idle', time: 0, wait: 1, walkTime: 0, moving: false,
@@ -217,7 +226,8 @@ function ease(t) { // 처음과 끝은 천천히, 가운데는 빠르게
 const keys = {};
 addEventListener('keydown', e => {
   if (e.code === 'Space' && !e.repeat) {
-    if (gameOver || win) resetGame();
+    if (!started) started = true;
+    else if (gameOver || win) resetGame();
     else if (phase === 'ground' && alien.onGround && alien.roll <= 0) {
       alien.vy = -JUMP;
       alien.onGround = false;
@@ -241,13 +251,14 @@ addEventListener('pointermove', setAim);
 addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   setAim(e);
-  if (gameOver || win) resetGame();
+  if (!started) started = true;
+  else if (gameOver || win) resetGame();
   else if (phase === 'sky' && counterReady && overlap({ x: aimX, y: aimY, w: 1, h: 1 }, COUNTER_BUTTON)) startCounter();
   else if (phase === 'ground') swing();
 });
 
 function startRoll() {
-  if (gameOver || win || alien.roll > 0) return;
+  if (!started || gameOver || win || alien.roll > 0) return;
   if (phase !== 'ground' && phase !== 'sky') return;
   const right = keys.KeyD || keys.ArrowRight, left = keys.KeyA || keys.ArrowLeft;
   alien.rollDir = right && !left ? 1 : left && !right ? -1 : alien.flip ? -1 : 1;
@@ -355,7 +366,6 @@ function updateAlien(dt) {
       s.hit = true;
       rex.hp = Math.max(0, rex.hp - SWORD_DAMAGE);
       rex.flash = 0.1;
-      hitFeel(3, 0.12, 'rgba(255, 255, 255, 0.15)'); // 맞히면 살짝 흔들리고 하얗게 번쩍
       const b = slashBox(s), r = rexBox();
       sparks.push({ x: (Math.max(b.x, r.x) + Math.min(b.x + b.w, r.x + r.w)) / 2, y: alien.y + ALIEN / 2, time: 0 });
       if (rex.hp <= 0) { setRex('hit'); fireballs = []; }
@@ -610,7 +620,7 @@ function hitFeel(power, seconds, color) {
 function update(dt) {
   if (shakeTime > 0) shakeTime -= dt;
   if (flashTime > 0) flashTime -= dt;
-  if (gameOver || win) {
+  if (!started || gameOver || win) { // 처음 화면에서는 티라노가 숨만 쉬고 아무도 안 움직여요
     rex.time += dt;
     return;
   }
@@ -841,6 +851,24 @@ function draw() {
   if (phase === 'sky' && counterReady) drawCounterButton();
   if (gameOver) drawMessage('티라노에게 잡혔어요!', '스페이스나 클릭으로 다시 시작', true);
   if (win) drawMessage('티라노를 물리쳤어요!', '스페이스나 클릭으로 처음부터', true);
+  if (!started) drawStartGuide();
+}
+function drawStartGuide() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 4;
+  ctx.font = 'bold 28px sans-serif';
+  ctx.fillText(START_GUIDE.title, W / 2, 120);
+  ctx.font = '16px sans-serif';
+  START_GUIDE.lines.forEach((line, i) => ctx.fillText(line, W / 2, 165 + i * 26));
+  // 시작 글자는 밝게·흐리게 깜빡여요 (사라지지는 않아요)
+  ctx.fillStyle = Math.floor(clock * 2) % 2 === 0 ? '#ffe14a' : '#b39a2e';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(START_GUIDE.go, W / 2, 250);
+  ctx.shadowBlur = 0;
 }
 function drawHpBar() {
   const bw = 160, bh = 10, x = W - 6 - bw, y = 9;
