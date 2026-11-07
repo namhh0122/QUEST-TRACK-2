@@ -313,6 +313,7 @@ function hurtAlien(fromX) {
   if (alien.hurt > 0 || alien.roll > 0) return false;
   lives--;
   alien.hurt = 1.5;
+  hitFeel(5, 0.25, 'rgba(255, 40, 40, 0.35)'); // 맞으면 크게 흔들리고 빨갛게 번쩍
   if (phase === 'ground') {
     alien.push = 0.3;
     alien.vx = (alien.x + ALIEN / 2 < fromX ? -1 : 1) * 220;
@@ -354,6 +355,7 @@ function updateAlien(dt) {
       s.hit = true;
       rex.hp = Math.max(0, rex.hp - SWORD_DAMAGE);
       rex.flash = 0.1;
+      hitFeel(3, 0.12, 'rgba(255, 255, 255, 0.15)'); // 맞히면 살짝 흔들리고 하얗게 번쩍
       const b = slashBox(s), r = rexBox();
       sparks.push({ x: (Math.max(b.x, r.x) + Math.min(b.x + b.w, r.x + r.w)) / 2, y: alien.y + ALIEN / 2, time: 0 });
       if (rex.hp <= 0) { setRex('hit'); fireballs = []; }
@@ -517,6 +519,7 @@ function updateSky(dt) {
       counterHit = true;
       rex.hp = Math.max(1, rex.hp - COUNTER_DAMAGE);
       rex.flash = 0.3;
+      hitFeel(7, 0.35, 'rgba(255, 255, 255, 0.4)'); // 반격은 더 크게
       setRex('hit');
       alien.slash = { type: 'h', time: 0, dir: 1, hit: true };
       alien.counterSlash = { type: 'u', time: 0, dir: -1, hit: true };
@@ -595,7 +598,18 @@ function updateFireballs(dt) {
   sparks = sparks.filter(s => (s.time += dt) < 0.15);
 }
 
+// 타격감: 맞히거나 맞으면 화면이 잠깐 흔들리고(shake) 번쩍여요(flash).
+// power 는 흔들리는 폭(px), seconds 는 흔들리는 시간, color 는 번쩍이는 색.
+let shakeTime = 0, shakeLength = 0, shakePower = 0, flashTime = 0, flashLength = 0, flashColor = '';
+function hitFeel(power, seconds, color) {
+  if (power >= shakePower || shakeTime <= 0) { shakePower = power; shakeTime = shakeLength = seconds; }
+  flashTime = flashLength = Math.min(seconds, 0.15);
+  flashColor = color;
+}
+
 function update(dt) {
+  if (shakeTime > 0) shakeTime -= dt;
+  if (flashTime > 0) flashTime -= dt;
   if (gameOver || win) {
     rex.time += dt;
     return;
@@ -769,6 +783,12 @@ function drawShip() {
 let clock = 0;
 function draw() {
   drawBackground(scroll);
+  // 흔들림: 땅·티라노·외계인을 잠깐 이리저리 밀어서 그려요. 위쪽 글자(목숨·체력)는 그대로 둬요.
+  ctx.save();
+  if (shakeTime > 0) {
+    const p = shakePower * (shakeTime / shakeLength); // 점점 약해져요
+    ctx.translate(Math.round(random(-p, p)), Math.round(random(-p, p)));
+  }
   const shift = groundShift();
   if (shift < H - GROUND_Y + 10) {
     for (let x = 0; x < W; x += TILE) {
@@ -793,6 +813,14 @@ function draw() {
     const r = Math.round(4 + s.time * 60);
     ctx.fillRect(Math.round(s.x) - r, Math.round(s.y) - 1, r * 2, 2);
     ctx.fillRect(Math.round(s.x) - 1, Math.round(s.y) - r, 2, r * 2);
+  }
+
+  ctx.restore();
+  if (flashTime > 0) { // 번쩍: 화면 전체를 잠깐 색으로 덮었다가 빠르게 사라져요
+    ctx.globalAlpha = flashTime / flashLength;
+    ctx.fillStyle = flashColor;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
   }
 
   // 왼쪽 위: 목숨 = 외계인 그림 5개 (잃은 목숨은 흐리게)

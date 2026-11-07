@@ -11,7 +11,8 @@
 //   4. 티라노 공격 3가지(할퀴기·불 뿜기·돌진): 예고("!") 동안은 안 맞고, 공격이 오면 목숨이 줄어드는지
 //   5. 체력 절반 → 하늘로(땅이 사라지고 우주선) → 5번 피하면 반격하기 버튼 → 반격하면 체력 5분의 1 깎이고 땅으로
 //   6. 체력 0 → 티라노를 물리쳤어요
-// 사진 세 장을 check/shots 에 찍어요: 땅에서 칼 휘두르기(#ground), 하늘에서 불꽃 피하기(#sky), 돌진 빨간 예고(#warn)
+//   7. 타격감: 맞히면 살짝, 맞으면 크게, 반격은 더 크게 흔들리고 번쩍이는지
+// 사진 네 장을 check/shots 에 찍어요: 땅에서 칼 휘두르기(#ground), 하늘에서 불꽃 피하기(#sky), 돌진 빨간 예고(#warn), 맞아서 번쩍(#hit)
 //
 // check/shots 와 check/tmp 는 커밋하지 않아요 (.gitignore).
 
@@ -183,7 +184,36 @@ const TEST_SCRIPT = `<script>
   step(2.5);
   check('체력이 0 이 되면 "티라노를 물리쳤어요"', win, 'win=' + win);
 
-  // 사진용 장면. 주소 뒤 #ground / #sky / #warn 으로 골라요. 사진 찍을 때까지 그대로 있게 게임을 멈춰요.
+  // 7. 타격감: 맞히거나 맞으면 화면이 흔들리고 번쩍여요
+  // slashRex 는 0.3초를 돌려서 흔들림이 이미 끝나 있어요. 그래서 칼이 닿는 순간을 1/60초씩 봐요.
+  fresh();
+  alien.x = rex.x + 18 * REX_SIZE - ALIEN - 10; alien.hurt = 999; alien.swingWait = 0;
+  click(rex.x + REX_W / 2, GROUND_Y - 30);
+  let felt = false;
+  for (let i = 0; i < 15 && !felt; i++) { step(1 / 60); felt = shakeTime > 0 && flashTime > 0; }
+  check('칼로 맞히면 화면이 살짝 흔들리고 하얗게 번쩍', felt && shakePower === 3 && flashColor.startsWith('rgba(255, 255, 255'), '흔들림 ' + shakePower + 'px');
+  step(0.5);
+  check('흔들림·번쩍임은 잠깐 뒤 멈춤', shakeTime <= 0 && flashTime <= 0, '');
+  fresh();
+  rex.x = 300; rex.dir = -1; alien.x = 300 - 40;
+  rex.attack = 'claw'; rex.wait = 0.01; rex.state = 'windup';
+  felt = false;
+  for (let i = 0; i < 40 && !felt; i++) { step(1 / 60); felt = lives < LIVES; }
+  check('맞으면 화면이 크게 흔들리고 빨갛게 번쩍', felt && shakeTime > 0 && shakePower === 5 && flashColor.startsWith('rgba(255, 40, 40'), '흔들림 ' + shakePower + 'px, 목숨 ' + lives);
+  fresh();
+  rex.hp = REX_HP / 2; startRising(); step(RISE_TIME + 0.1);
+  counterReady = true; startCounter();
+  felt = false;
+  for (let i = 0; i < 60 && !felt; i++) { step(1 / 60); felt = counterHit; }
+  check('반격하면 더 크게 흔들림', felt && shakePower === 7 && shakeTime > 0, '흔들림 ' + shakePower + 'px');
+  fresh();
+  alien.x = 40; alien.swingWait = 0;
+  shakeTime = flashTime = 0;
+  click(rex.x + REX_W / 2, GROUND_Y - 30);
+  step(0.3);
+  check('헛손질(안 맞힘)이면 안 흔들림', shakeTime <= 0 && flashTime <= 0, '');
+
+  // 사진용 장면. 주소 뒤 #ground / #sky / #warn / #hit 으로 골라요. 사진 찍을 때까지 그대로 있게 게임을 멈춰요.
   resetGame();
   if (location.hash === '#sky') {
     rex.hp = 50; startRising(); step(RISE_TIME + 0.1);
@@ -193,6 +223,11 @@ const TEST_SCRIPT = `<script>
     fireballs.push({ x: 300, y: 200, vx: -120, vy: 200, floor: Infinity, time: 0 });
     fireballs.push({ x: 380, y: 160, vx: 0, vy: 230, floor: Infinity, time: 0.2 });
     fireballs.push({ x: 460, y: 200, vx: 120, vy: 200, floor: Infinity, time: 0.1 });
+  } else if (location.hash === '#hit') {
+    rex.x = 300; rex.dir = -1; rex.state = 'idle'; rex.wait = 999;
+    alien.x = 300 - 40;
+    hurtAlien(rex.x + REX_W / 2);
+    flashTime = flashLength * 0.8; // 번쩍임이 보이는 순간에서 멈춰요
   } else if (location.hash === '#warn') {
     rex.x = 380; rex.dir = -1;
     rex.attack = 'charge'; rex.state = 'windup'; rex.wait = 999;
@@ -243,7 +278,7 @@ function main() {
   const dom = runBrowser(browser, ['--dump-dom', pathToFileUrl(file)]);
   const m = dom.match(/<pre id="__stage"[^>]*>([\s\S]*?)<\/pre>/);
   const shots = [];
-  for (const scene of ['ground', 'sky', 'warn']) {
+  for (const scene of ['ground', 'sky', 'warn', 'hit']) {
     const shot = path.join(SHOTS_DIR, `my-game-${scene}.png`);
     runBrowser(browser, [`--screenshot=${shot}`, pathToFileUrl(file) + '#' + scene]);
     shots.push(shot);
