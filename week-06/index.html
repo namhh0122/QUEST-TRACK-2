@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>평택시 날씨</title>
+<!-- 폰에 설치되는 앱(PWA) 정보 -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#24476e">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="평택 날씨">
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -64,6 +71,7 @@
     opacity: 0.75;
   }
   .message {
+    word-break: keep-all;
     margin: 28px 0 8px;
     font-size: clamp(17px, 4.8vw, 20px);
     line-height: 1.5;
@@ -87,6 +95,18 @@
     background: #fff;
     cursor: pointer;
   }
+  .notice {
+    word-break: keep-all;
+    margin-top: 20px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.22);
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .notice b { display: block; font-size: 15px; }
+  .notice button { margin-top: 10px; padding: 8px 18px; font-size: 14px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -115,6 +135,12 @@
       <span>최저 <b id="min"></b></span>
     </div>
     <div class="time" id="time"></div>
+    <!-- 못 받아 와서 마지막으로 받은 날씨를 보여 줄 때 -->
+    <div class="notice" id="notice" role="alert" hidden>
+      <b id="notice-title"></b>
+      <span id="notice-text"></span>
+      <div><button id="notice-retry" type="button">다시 불러오기</button></div>
+    </div>
   </div>
 </main>
 
@@ -153,7 +179,62 @@ function show(which) {
   $('weather').hidden = which !== 'weather';
 }
 
-function showError(reason, hint) {
+function round(n) { return Math.round(n) + '°'; }
+
+// ── 마지막으로 받은 날씨 저장 (인터넷이 끊겼을 때 보여 주려고) ──
+const SAVE_KEY = 'week06-weather-last';
+
+function saveLast(w) {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(w)); } catch (e) {}
+}
+
+function readLast() {
+  try {
+    const w = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (w && typeof w.temp === 'number' && typeof w.code === 'number' && typeof w.savedAt === 'number') return w;
+  } catch (e) {}
+  return null;
+}
+
+// 1763088000000 → "11월 14일 오전 11:42"
+function whenText(ms) {
+  const d = new Date(ms);
+  const h = d.getHours();
+  const ampm = h < 12 ? '오전' : '오후';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${ampm} ${h12}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// 얼마나 지났는지: "방금", "25분 전", "3시간 전", "2일 전"
+function agoText(ms) {
+  const min = Math.floor((Date.now() - ms) / 60000);
+  if (min < 1) return '방금';
+  if (min < 60) return `${min}분 전`;
+  if (min < 60 * 24) return `${Math.floor(min / 60)}시간 전`;
+  return `${Math.floor(min / (60 * 24))}일 전`;
+}
+
+function render(w) {
+  $('temp').textContent = round(w.temp);
+  $('desc').textContent = weatherWord(w.code);
+  $('max').textContent = round(w.max);
+  $('min').textContent = round(w.min);
+  $('time').textContent = w.time ? `${w.time.slice(11, 16)} 기준` : '';
+}
+
+// 못 받아 왔을 때: 저장해 둔 날씨가 있으면 그것을 까닭·받은 때와 함께, 없으면 까닭만 보여 줘요.
+function fail(reason, hint, offline) {
+  const last = readLast();
+  if (last) {
+    render(last);
+    $('notice-title').textContent = offline
+      ? '인터넷이 끊겨서 마지막으로 받은 날씨를 보여 줘요.'
+      : '새 날씨를 받아 오지 못해서 마지막으로 받은 날씨를 보여 줘요.';
+    $('notice-text').textContent = `받은 때: ${whenText(last.savedAt)} (${agoText(last.savedAt)}) · ${reason}`;
+    $('notice').hidden = false;
+    show('weather');
+    return;
+  }
   $('error-text').innerHTML = '';
   $('error-text').append('날씨를 받아 오지 못했어요.');
   const small = document.createElement('small');
@@ -162,13 +243,12 @@ function showError(reason, hint) {
   show('error');
 }
 
-function round(n) { return Math.round(n) + '°'; }
-
 async function loadWeather() {
   show('loading');
+  $('notice').hidden = true;
 
   if (navigator.onLine === false) {
-    showError('인터넷에 연결되어 있지 않아요.', '연결을 확인하고 다시 불러와 주세요.');
+    fail('인터넷에 연결되어 있지 않아요.', '연결을 확인하고 다시 불러와 주세요.', true);
     return;
   }
 
@@ -178,13 +258,13 @@ async function loadWeather() {
   try {
     const res = await fetch(API_URL, { signal: stop.signal });
     if (!res.ok) {
-      showError(`날씨 서버가 오류를 알려 왔어요 (상태 번호 ${res.status}).`, '잠시 뒤에 다시 불러와 주세요.');
+      fail(`날씨 서버가 오류를 알려 왔어요 (상태 번호 ${res.status}).`, '잠시 뒤에 다시 불러와 주세요.');
       return;
     }
     data = await res.json();
   } catch (e) {
-    if (e.name === 'AbortError') showError('날씨 서버가 10초 동안 답하지 않았어요.', '잠시 뒤에 다시 불러와 주세요.');
-    else showError('날씨 서버에 연결하지 못했어요.', '인터넷 연결을 확인해 주세요.');
+    if (e.name === 'AbortError') fail('날씨 서버가 10초 동안 답하지 않았어요.', '잠시 뒤에 다시 불러와 주세요.');
+    else fail('날씨 서버에 연결하지 못했어요.', '인터넷 연결을 확인해 주세요.', navigator.onLine === false);
     return;
   } finally {
     clearTimeout(timer);
@@ -194,21 +274,35 @@ async function loadWeather() {
   const day = data && data.daily;
   if (!now || typeof now.temperature_2m !== 'number' || typeof now.weather_code !== 'number'
       || !day || !day.temperature_2m_max || !day.temperature_2m_min) {
-    showError('받은 정보가 예상한 모양과 달라요.', '잠시 뒤에 다시 불러와 주세요.');
+    fail('받은 정보가 예상한 모양과 달라요.', '잠시 뒤에 다시 불러와 주세요.');
     return;
   }
 
-  $('temp').textContent = round(now.temperature_2m);
-  $('desc').textContent = weatherWord(now.weather_code);
-  $('max').textContent = round(day.temperature_2m_max[0]);
-  $('min').textContent = round(day.temperature_2m_min[0]);
-  const t = String(now.time || '');
-  $('time').textContent = t ? `${t.slice(11, 16)} 기준` : '';
+  const w = {
+    temp: now.temperature_2m,
+    code: now.weather_code,
+    max: day.temperature_2m_max[0],
+    min: day.temperature_2m_min[0],
+    time: String(now.time || ''),
+    savedAt: Date.now(),
+  };
+  saveLast(w);
+  render(w);
   show('weather');
 }
 
 $('retry').addEventListener('click', loadWeather);
+$('notice-retry').addEventListener('click', loadWeather);
+// 인터넷이 다시 연결되면 저절로 새 날씨를 받아 와요.
+addEventListener('online', () => {
+  if (!$('notice').hidden || !$('error').hidden) loadWeather();
+});
 loadWeather();
+
+// 폰에 설치되는 앱(PWA)용 서비스 워커. 파일을 두 번 눌러 열었을 때(file://)는 쓸 수 없어서 건너뛰어요.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
