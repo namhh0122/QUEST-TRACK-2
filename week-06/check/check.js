@@ -1,23 +1,30 @@
-// week-05 게임 확인 도구
+// week-06 앱 확인 도구 (week-05 게임 확인 도구를 날씨 앱에 맞게 고침)
 //
 // 쓰는 법 (QUEST-TRACK-2 폴더에서):
-//   node week-05/check/check.js .          → 내 게임 (week-05/index.html) 확인
+//   node week-06/check/check.js          → 내 앱 (week-06/index.html) 확인
 //
 // 하는 일:
-//   1. 화면 없는 Chrome(또는 Edge)으로 게임을 열어요. 파일을 두 번 누른 것처럼 file:// 로 열어요.
-//   2. 그림·소리를 다 불러왔는지, 자바스크립트 오류가 났는지, 화면이 창에 꽉 차는지 봐요.
-//   3. → 키를 누르고 스페이스를 눌러 본 뒤 상태를 봐요.
-//   4. 여러 창 크기로 화면 사진을 찍어서 check/shots 에 저장해요.
+//   1. 화면 없는 Chrome(또는 Edge)으로 앱을 열어요. 파일을 두 번 누른 것처럼 file:// 로 열어요.
+//   2. 네 가지 경우를 만들어서 화면에 무엇이 나오는지 봐요.
+//        진짜      : 진짜 Open-Meteo 에서 날씨를 받아 와요
+//        불러오는중 : 답이 오지 않는 것처럼 꾸며요
+//        연결실패   : 인터넷이 끊긴 것처럼 꾸며요
+//        서버오류   : 서버가 500 오류를 돌려준 것처럼 꾸며요
+//   3. 폰·태블릿·컴퓨터 화면 폭을 흉내 내서, 옆으로 잘리거나 넘치는 것이 있는지 봐요.
+//      (화면 없는 Chrome 은 창을 500px 보다 좁게 만들지 못해서, 창 크기 대신
+//       Chrome 의 '기기 흉내' 기능(DevTools)으로 폰 폭을 만들어요.)
+//   4. 화면 사진을 찍어서 check/shots 에 저장해요.
 //
-// check/shots(사진)와 check/tmp(시험용 페이지, 브라우저 임시 폴더)는 커밋하지 않아요 (.gitignore).
-// 새로 설치할 것은 없어요. Node.js 와 이미 있는 Chrome/Edge 만 써요.
+// check/shots(사진)와 check/tmp(브라우저 임시 폴더)는 커밋하지 않아요 (.gitignore).
+// 새로 설치할 것은 없어요. Node.js(22 이상)와 이미 있는 Chrome/Edge 만 써요.
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { spawn } = require('child_process');
 
 const CHECK_DIR = __dirname;
 const WEEK_DIR = path.dirname(CHECK_DIR);
+const ROOT_DIR = path.dirname(WEEK_DIR);
 const SHOTS_DIR = path.join(CHECK_DIR, 'shots');
 const TMP_DIR = path.join(CHECK_DIR, 'tmp');
 const PROFILE_DIR = path.join(TMP_DIR, 'browser-profile');
@@ -29,125 +36,155 @@ const BROWSERS = [
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
 ];
 
-// 사진을 찍을 창 크기
+// 확인할 화면 크기 (mobile: 폰처럼 흉내 냄)
 const SIZES = [
-  { name: 'wide', w: 1280, h: 720 },  // 보통 모니터 비율
-  { name: 'tall', w: 1000, h: 800 },  // 세로가 긴 창
-  { name: 'small', w: 640, h: 400 },  // 작은 창
+  { name: 'phone-small', w: 360, h: 740, mobile: true },   // 작은 폰
+  { name: 'phone', w: 390, h: 844, mobile: true },         // 보통 폰
+  { name: 'tablet', w: 768, h: 1024, mobile: true },       // 태블릿
+  { name: 'desktop', w: 1280, h: 720, mobile: false },     // 컴퓨터
 ];
 
-// 키를 눌러 보는 순서 (밀리초)
-const KEY_SCRIPT = [
-  { at: 200, type: 'keydown', code: 'ArrowRight' },
-  { at: 500, type: 'keydown', code: 'Space' },
-  { at: 550, type: 'keyup', code: 'Space' },
-  { at: 900, type: 'keyup', code: 'ArrowRight' },
+// 꾸며 볼 경우들. expect 는 그때 보여야 하는 화면이에요.
+const MODES = [
+  { name: 'real', label: '진짜', expect: 'weather' },
+  { name: 'loading', label: '불러오는중', expect: 'loading' },
+  { name: 'offline', label: '연결실패', expect: 'error' },
+  { name: 'server500', label: '서버오류', expect: 'error' },
 ];
-const REPORT_AT = 1500; // 이때 결과를 모아요
+const REPORT_AFTER = 3000; // 페이지를 열고 이만큼(밀리초) 기다린 뒤 결과를 모아요
 
-// 게임 스크립트보다 먼저 실행돼서, 그림·소리 불러오기와 오류를 기록해요.
-function hookScript(pressKeys) {
-  return `<script>
-(function () {
-  const R = { errors: [], notes: [], images: [], sounds: [] };
-  addEventListener('error', e => {
-    if (e.target && e.target !== window) return; // 그림·소리 실패는 아래에서 따로 기록
-    R.errors.push(e.message);
-  }, true);
-  addEventListener('unhandledrejection', e => {
-    const msg = String(e.reason && (e.reason.name + ': ' + e.reason.message) || e.reason);
-    // 사람이 누르지 않은 키로는 브라우저가 소리 재생을 막아요. 오류가 아니라 참고로만 적어요.
-    if (/NotAllowedError/.test(msg)) R.notes.push('브라우저가 자동 재생을 막음 (사람이 직접 누르면 재생돼요)');
-    else R.errors.push(msg);
+// 앱 스크립트보다 먼저 실행돼서, 오류를 기록하고 fetch 를 경우에 맞게 바꿔요.
+function hookScript(mode) {
+  return `(function () {
+  const R = window.__check = { errors: [] };
+  addEventListener('error', e => { if (!e.target || e.target === window) R.errors.push(e.message); }, true);
+  addEventListener('unhandledrejection', e => R.errors.push(String(e.reason && e.reason.message || e.reason)));
+  const mode = ${JSON.stringify(mode)};
+  const realFetch = window.fetch.bind(window);
+  window.fetch = function (url, opts) {
+    if (mode === 'loading') return new Promise(() => {});
+    if (mode === 'offline') return Promise.reject(new TypeError('Failed to fetch'));
+    if (mode === 'server500') return Promise.resolve(new Response('error', { status: 500 }));
+    return realFetch(url, opts);
+  };
+})();`;
+}
+
+// 결과를 모으는 코드 (페이지 안에서 실행)
+const REPORT_JS = `(() => {
+  const vis = id => { const el = document.getElementById(id); return !!el && !el.hidden && el.offsetParent !== null; };
+  const text = id => { const el = document.getElementById(id); return el ? el.innerText.trim().replace(/\\s+/g, ' ') : ''; };
+  const W = document.documentElement.clientWidth;
+  const outside = [];
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.offsetParent === null || el.tagName === 'SCRIPT') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width && (r.left < -1 || r.right > W + 1))
+      outside.push(el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + ' ' + Math.round(r.left) + '~' + Math.round(r.right));
+  }
+  return JSON.stringify({
+    errors: (window.__check || { errors: [] }).errors,
+    shown: ['loading', 'error', 'weather'].filter(vis),
+    texts: { loading: text('loading'), error: text('error-text'), temp: text('temp'), desc: text('desc'), max: text('max'), min: text('min'), time: text('time') },
+    width: W,
+    scrollWidth: document.documentElement.scrollWidth,
+    outside: outside.slice(0, 5),
   });
-
-  const OrigImage = window.Image;
-  window.Image = function (w, h) {
-    const img = new OrigImage(w, h);
-    const rec = { img, state: '불러오는 중' };
-    R.images.push(rec);
-    img.addEventListener('load', () => rec.state = img.naturalWidth + '×' + img.naturalHeight);
-    img.addEventListener('error', () => rec.state = '실패');
-    return img;
-  };
-
-  const OrigAudio = window.Audio;
-  window.Audio = function (src) {
-    const a = new OrigAudio(src);
-    const rec = { a, state: '불러오는 중' };
-    R.sounds.push(rec);
-    a.addEventListener('loadedmetadata', () => rec.state = a.duration.toFixed(2) + '초');
-    a.addEventListener('error', () => rec.state = '실패');
-    return a;
-  };
-
-  ${pressKeys ? `
-  for (const k of ${JSON.stringify(KEY_SCRIPT)})
-    setTimeout(() => dispatchEvent(new KeyboardEvent(k.type, { code: k.code, key: k.code === 'Space' ? ' ' : k.code })), k.at);
-  ` : ''}
-
-  setTimeout(() => {
-    const canvas = document.querySelector('canvas');
-    const box = canvas && canvas.getBoundingClientRect();
-    const out = {
-      errors: R.errors,
-      notes: [...new Set(R.notes)],
-      images: R.images.map(r => ({ src: decodeURI(r.img.src.split('/').pop()), state: r.state })),
-      sounds: R.sounds.map(r => ({ src: decodeURI(r.a.src.split('/').pop()), state: r.state, loop: r.a.loop })),
-      window: { w: innerWidth, h: innerHeight },
-      canvas: box && { w: Math.round(box.width), h: Math.round(box.height) },
-    };
-    const pre = document.createElement('pre');
-    pre.id = '__check';
-    pre.style.display = 'none';
-    pre.textContent = JSON.stringify(out);
-    document.body.appendChild(pre);
-  }, ${REPORT_AT});
-})();
-</script>`;
-}
-
-// 게임 index.html 에 기록용 스크립트를 넣은 시험용 사본을 check/tmp 에 만들어요.
-// <base> 로 게임 폴더를 가리키게 해서 assets 경로는 원래대로 찾아가요.
-function makeTestPage(gameDir, pressKeys, name) {
-  const html = fs.readFileSync(path.join(gameDir, 'index.html'), 'utf8');
-  const base = `<base href="${pathToFileUrl(gameDir)}/">`;
-  if (!/<head[^>]*>/i.test(html)) throw new Error('index.html 에 <head> 가 없어요.');
-  const out = html.replace(/<head[^>]*>/i, m => m + base + hookScript(pressKeys));
-  const file = path.join(TMP_DIR, name);
-  fs.writeFileSync(file, out);
-  return file;
-}
+})()`;
 
 function pathToFileUrl(p) {
   return 'file:///' + path.resolve(p).replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/').replace('%3A', ':');
 }
 
-function runBrowser(browser, args) {
-  return execFileSync(browser, [
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+// Chrome 을 켜고 DevTools 연결 주소를 알아내요.
+async function startBrowser(browser) {
+  const portFile = path.join(PROFILE_DIR, 'DevToolsActivePort');
+  try { fs.unlinkSync(portFile); } catch (e) {}
+  const proc = spawn(browser, [
     '--headless=new',
     '--disable-gpu',
     '--no-first-run',
-    '--mute-audio',
+    '--hide-scrollbars',
+    '--disable-quic', // 이 컴퓨터에서는 QUIC(HTTP/3) 연결이 날씨 서버에서 멈춰서 꺼요
+    '--remote-debugging-port=0',
     `--user-data-dir=${PROFILE_DIR}`,
-    `--virtual-time-budget=${REPORT_AT + 1000}`,
-    ...args,
-  ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 60000 });
+    'about:blank',
+  ], { stdio: 'ignore' });
+  for (let i = 0; i < 100; i++) {
+    if (fs.existsSync(portFile)) {
+      const [port, wsPath] = fs.readFileSync(portFile, 'utf8').trim().split('\n');
+      if (wsPath) return { proc, url: `ws://127.0.0.1:${port}${wsPath}` };
+    }
+    await wait(100);
+  }
+  proc.kill();
+  throw new Error('Chrome 이 DevTools 연결을 열지 않았어요.');
 }
 
-function readReport(dom) {
-  const m = dom.match(/<pre id="__check"[^>]*>([\s\S]*?)<\/pre>/);
-  if (!m) return null;
-  const text = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-  return JSON.parse(text);
+// DevTools 에 명령을 보내고 답을 받는 작은 도우미
+function connect(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    let id = 0;
+    const pending = new Map();
+    ws.onmessage = ev => {
+      const msg = JSON.parse(ev.data);
+      if (msg.id && pending.has(msg.id)) {
+        const { ok, fail } = pending.get(msg.id);
+        pending.delete(msg.id);
+        msg.error ? fail(new Error(msg.error.message)) : ok(msg.result);
+      }
+    };
+    ws.onerror = () => reject(new Error('DevTools 에 연결하지 못했어요.'));
+    ws.onopen = () => resolve({
+      send(method, params = {}, sessionId) {
+        return new Promise((ok, fail) => {
+          const n = ++id;
+          pending.set(n, { ok, fail });
+          ws.send(JSON.stringify({ id: n, method, params, sessionId }));
+        });
+      },
+      close() { ws.close(); },
+    });
+  });
 }
 
-function main() {
-  const target = process.argv[2] || '.';
-  const gameDir = path.resolve(WEEK_DIR, target);
-  const label = target === '.' ? 'my-game' : path.basename(gameDir);
-  if (!fs.existsSync(path.join(gameDir, 'index.html'))) {
-    console.log(`index.html 이 없어요: ${gameDir}`);
+// 한 경우·한 크기로 앱을 열어서 결과와 (원하면) 사진을 얻어요.
+async function visit(cdp, pageUrl, mode, size, shotFile) {
+  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  const s = (m, p) => cdp.send(m, p, sessionId);
+  try {
+    await s('Page.enable');
+    await s('Emulation.setDeviceMetricsOverride', {
+      width: size.w, height: size.h, deviceScaleFactor: 1, mobile: size.mobile,
+    });
+    await s('Page.addScriptToEvaluateOnNewDocument', { source: hookScript(mode) });
+    await s('Page.navigate', { url: pageUrl });
+    await wait(REPORT_AFTER);
+    const { result } = await s('Runtime.evaluate', { expression: REPORT_JS, returnByValue: true });
+    const rep = JSON.parse(result.value);
+    if (shotFile) {
+      const { data } = await s('Page.captureScreenshot', { format: 'png' });
+      fs.writeFileSync(shotFile, Buffer.from(data, 'base64'));
+    }
+    return rep;
+  } catch (e) {
+    return null;
+  } finally {
+    await cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+  }
+}
+
+const SCREEN_NAME = { loading: '불러오는 중', error: '못 받아 옴', weather: '날씨' };
+
+async function main() {
+  const appDir = WEEK_DIR;
+  const appFile = path.join(appDir, 'index.html');
+  if (!fs.existsSync(appFile)) {
+    console.log(`index.html 이 없어요: ${appDir}`);
     process.exit(1);
   }
   const browser = BROWSERS.find(b => fs.existsSync(b));
@@ -155,86 +192,86 @@ function main() {
     console.log('Chrome 이나 Edge 를 찾지 못했어요.');
     process.exit(1);
   }
-  fs.mkdirSync(SHOTS_DIR, { recursive: true });
-  fs.mkdirSync(TMP_DIR, { recursive: true });
-
-  const idlePage = makeTestPage(gameDir, false, `${label}-idle.html`);
-  const keysPage = makeTestPage(gameDir, true, `${label}-keys.html`);
-
-  // 1) 상태 기록 (키를 누르지 않은 것 / 누른 것)
-  const sizeArg = `--window-size=${SIZES[0].w},${SIZES[0].h}`;
-  const idle = readReport(runBrowser(browser, [sizeArg, '--dump-dom', pathToFileUrl(idlePage)]));
-  const keys = readReport(runBrowser(browser, [sizeArg, '--dump-dom', pathToFileUrl(keysPage)]));
-
-  // 2) 사진
-  const shots = [];
-  for (const s of SIZES) {
-    const file = path.join(SHOTS_DIR, `${label}-${s.name}-${s.w}x${s.h}.png`);
-    runBrowser(browser, [`--window-size=${s.w},${s.h}`, `--screenshot=${file}`, pathToFileUrl(idlePage)]);
-    shots.push(file);
+  if (typeof WebSocket === 'undefined') {
+    console.log('이 Node.js 에는 WebSocket 이 없어요. Node.js 22 이상이 필요해요.');
+    process.exit(1);
   }
-  const keysShot = path.join(SHOTS_DIR, `${label}-after-keys-${SIZES[0].w}x${SIZES[0].h}.png`);
-  runBrowser(browser, [sizeArg, `--screenshot=${keysShot}`, pathToFileUrl(keysPage)]);
-  shots.push(keysShot);
+  fs.mkdirSync(SHOTS_DIR, { recursive: true });
+  fs.mkdirSync(PROFILE_DIR, { recursive: true });
 
-  // 3) 결과 알려 주기
+  const { proc, url } = await startBrowser(browser);
+  const cdp = await connect(url);
+  const pageUrl = pathToFileUrl(appFile);
+
   const ok = [];
   const bad = [];
-  const unchecked = [];
+  const shots = [];
+  const errors = new Set();
 
-  if (!idle) {
-    bad.push('결과를 읽지 못했어요. 게임 페이지가 열리지 않았을 수 있어요.');
-  } else {
-    const imgFail = idle.images.filter(i => i.state === '실패' || i.state === '불러오는 중');
-    if (idle.images.length === 0) unchecked.push('그림: new Image() 로 불러온 그림이 없어서 확인하지 못했어요.');
-    else if (imgFail.length) bad.push('그림 못 불러옴: ' + imgFail.map(i => `${i.src}(${i.state})`).join(', '));
-    else ok.push(`그림 ${idle.images.length}개 모두 불러옴: ` + idle.images.map(i => `${i.src} ${i.state}`).join(', '));
+  try {
+    for (const mode of MODES) {
+      const results = [];
+      for (const size of SIZES) {
+        // 진짜 경우는 모든 크기로, 나머지는 작은 폰 크기로만 사진을 찍어요.
+        const shotFile = (mode.name === 'real' || size === SIZES[0])
+          ? path.join(SHOTS_DIR, `my-app-${mode.name}-${size.name}-${size.w}x${size.h}.png`) : null;
+        const rep = await visit(cdp, pageUrl, mode.name, size, shotFile);
+        if (rep && shotFile) shots.push(shotFile);
+        results.push({ size, rep });
+      }
 
-    const sndFail = idle.sounds.filter(s => s.state === '실패');
-    const sndWait = idle.sounds.filter(s => s.state === '불러오는 중');
-    if (idle.sounds.length === 0) unchecked.push('소리: new Audio() 로 불러온 소리가 없어서 확인하지 못했어요.');
-    if (sndFail.length) bad.push('소리 못 불러옴: ' + sndFail.map(s => s.src).join(', '));
-    if (sndWait.length) unchecked.push('소리 파일 상태를 시간 안에 알지 못함: ' + sndWait.map(s => s.src).join(', '));
-    const sndOk = idle.sounds.filter(s => !sndFail.includes(s) && !sndWait.includes(s));
-    if (sndOk.length) ok.push(`소리 파일 ${sndOk.length}개 불러옴: ` + sndOk.map(s => `${s.src} ${s.state}${s.loop ? ' (반복)' : ''}`).join(', '));
+      // 화면이 맞게 나왔는지
+      const wrong = results.filter(r => !r.rep || r.rep.shown.length !== 1 || r.rep.shown[0] !== mode.expect);
+      const first = results.find(r => r.rep);
+      if (wrong.length) {
+        bad.push(`[${mode.label}] ${SCREEN_NAME[mode.expect]} 화면이어야 하는데 다르게 나옴: `
+          + wrong.map(r => `${r.size.w}×${r.size.h} → ${r.rep ? (r.rep.shown.map(x => SCREEN_NAME[x]).join('+') || '아무것도 안 보임') : '결과 못 읽음'}`).join(', '));
+      } else {
+        const t = first.rep.texts;
+        const what = mode.expect === 'weather' ? `기온 ${t.temp} · ${t.desc} · 최고 ${t.max} · 최저 ${t.min} · ${t.time}`
+          : mode.expect === 'loading' ? `"${t.loading}"`
+          : `"${t.error}"`;
+        ok.push(`[${mode.label}] 화면 크기 4가지 모두 ${SCREEN_NAME[mode.expect]} 화면: ${what}`);
+        if (mode.expect === 'weather' && /알 수 없는 날씨/.test(t.desc)) bad.push(`[${mode.label}] 날씨 번호를 낱말로 못 바꿈: ${t.desc}`);
+      }
 
-    if (idle.canvas) {
-      const fullW = Math.abs(idle.canvas.w - idle.window.w) <= 2;
-      const fullH = Math.abs(idle.canvas.h - idle.window.h) <= 2;
-      const msg = `창 ${idle.window.w}×${idle.window.h} → 게임 화면 ${idle.canvas.w}×${idle.canvas.h}`;
-      if (fullW || fullH) ok.push(`화면 크기: ${msg} (${fullW && fullH ? '꽉 참' : '한쪽이 꽉 참, 나머지는 검은 띠'})`);
-      else bad.push(`화면 크기: ${msg} (창에 꽉 차지 않음)`);
-    } else {
-      unchecked.push('화면 크기: canvas 가 없어서 확인하지 못했어요.');
+      // 옆으로 넘치는지 (흉내 낸 폭이 맞게 들어갔는지도 함께 봐요)
+      for (const r of results) {
+        if (!r.rep) continue;
+        if (r.rep.width !== r.size.w)
+          bad.push(`[${mode.label}] ${r.size.w}×${r.size.h} 를 흉내 냈는데 실제 폭이 ${r.rep.width} 이라 확인이 믿을 만하지 않아요`);
+        if (r.rep.scrollWidth > r.rep.width || r.rep.outside.length)
+          bad.push(`[${mode.label}] ${r.size.w}×${r.size.h} 에서 옆으로 넘침 (폭 ${r.rep.width}, 내용 ${r.rep.scrollWidth}) ${r.rep.outside.join(', ')}`);
+        for (const e of r.rep.errors) errors.add(e);
+      }
     }
+  } finally {
+    cdp.close();
+    proc.kill();
   }
 
-  const errors = [...new Set([...(idle ? idle.errors : []), ...(keys ? keys.errors : [])])];
-  if (idle || keys) {
-    if (errors.length) bad.push('자바스크립트 오류: ' + errors.join(' / '));
-    else ok.push('자바스크립트 오류: 없음 (키를 누르기 전과 누른 뒤 모두)');
+  if (!bad.some(b => b.includes('넘침') || b.includes('흉내'))) {
+    ok.push('옆으로 잘리거나 넘치는 것: 없음 (' + SIZES.map(s => `${s.w}×${s.h}`).join(', ') + ', 경우 4가지 모두)');
   }
-  if (keys) ok.push('→ 키와 스페이스를 눌렀을 때 멈추지 않고 계속 돌아감');
-  else bad.push('키를 누르는 시험의 결과를 읽지 못했어요.');
+  if (errors.size) bad.push('자바스크립트 오류: ' + [...errors].join(' / '));
+  else ok.push('자바스크립트 오류: 없음');
+  ok.push(`화면 사진 ${shots.length}장 찍음:`);
 
-  ok.push('화면 사진 ' + shots.length + '장 찍음 (그림이 맞게 보이는지는 사진을 열어 봐야 알아요):');
-  const notes = [...new Set([...(idle ? idle.notes : []), ...(keys ? keys.notes : [])])];
+  const unchecked = [
+    '진짜 폰에서 열었을 때 (여기서는 Chrome 의 기기 흉내로 폰 폭만 맞춰 봤어요)',
+    '"다시 불러오기" 단추를 사람이 눌렀을 때',
+    '10초 동안 답이 없을 때 나오는 안내 (시험에서는 3초까지만 봤어요)',
+    '받아 온 날씨가 진짜 바깥 날씨와 맞는지',
+  ];
 
-  unchecked.push('소리가 실제로 들리는지 (화면 없는 브라우저는 소리를 내지 않아요). 직접 열고 키를 눌러 들어 봐 주세요.');
-  unchecked.push('사람이 직접 키를 눌렀을 때의 느낌 (속도, 점프 높이 같은 것)');
-
-  console.log(`\n=== 확인 결과: ${label} (${path.relative(path.dirname(WEEK_DIR), gameDir) || '.'}\\index.html) ===`);
+  console.log(`\n=== 확인 결과: 내 앱 (${path.relative(ROOT_DIR, appFile)}) ===`);
   console.log(`브라우저: ${path.basename(browser)}`);
   console.log('\n[확인한 것]');
   for (const line of ok) console.log('- ' + line);
-  for (const s of shots) console.log('    ' + path.relative(path.dirname(WEEK_DIR), s));
+  for (const s of shots) console.log('    ' + path.relative(ROOT_DIR, s));
   if (bad.length) {
     console.log('\n[문제]');
     for (const line of bad) console.log('- ' + line);
-  }
-  if (notes.length) {
-    console.log('\n[참고]');
-    for (const line of notes) console.log('- ' + line);
   }
   console.log('\n[확인하지 못한 것]');
   for (const line of unchecked) console.log('- ' + line);
@@ -242,4 +279,4 @@ function main() {
   process.exit(bad.length ? 1 : 0);
 }
 
-main();
+main().catch(e => { console.log('확인 도구가 멈췄어요: ' + e.message); process.exit(1); });
