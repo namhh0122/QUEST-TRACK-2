@@ -3,7 +3,9 @@
 // 쓰는 법 (QUEST-TRACK-2 폴더에서):
 //   node week-07/check/check.js
 //
-// 하는 일 (파일을 두 번 누른 것처럼 file:// 로 열어서 사람이 하는 것을 따라 해요):
+// 시험하는 방법: 파일을 두 번 누른 것처럼(file://) 열고, Google 로그인과 Firestore 자리에는 같은 모양의 "가짜"를 꽂아요.
+//   (진짜 로그인은 사람만 할 수 있고, 시험이 진짜 보관함을 어지럽히면 안 되니까요. 맨 끝에서 진짜 Firebase 연결도 읽기만 해 봐요.)
+// 하는 일 (사람이 하는 것을 따라 해요):
 //   1. 처음 열기      : 예시 2개가 보이고, 다른 사람 것에는 고치기·지우기가 없는지, 로그인 자리가 빈 칸인지
 //   1-1. 위쪽 줄·찾기줄·별: 찾기 단추가 제목 옆, 정렬은 작게 오른쪽 위, 찾기 줄 열고 닫기, 첫 화면에 카드가 보이는지, 빈 별 대비
 //   1-2. + 칸      : 새 플레이리스트 만들기가 + 칸으로 카드 옆에 있고, 눌러 열고 취소·Esc·만든 뒤 닫히는지
@@ -21,6 +23,7 @@
 // 새로 설치할 것은 없어요. Node.js(22 이상)와 이미 있는 Chrome/Edge 만 써요.
 
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const { launch, openTab, evaluate, wait, pathToFileUrl } = require('./browser');
 
@@ -28,7 +31,8 @@ const CHECK_DIR = __dirname;
 const WEEK_DIR = path.dirname(CHECK_DIR);
 const ROOT_DIR = path.dirname(WEEK_DIR);
 const SHOTS_DIR = path.join(CHECK_DIR, 'shots');
-const SAVE_KEY = 'week07-music';
+const SAVE_KEY = '__fake'; // 가짜 보관함이 브라우저에 적어 두는 칸 (시험용)
+const OLD_LOCAL_KEY = 'week07-music'; // 로그인을 붙이기 전에 이 기기에 저장하던 칸 (옮기기 시험용)
 
 const SIZES = [
   { name: 'phone-small', w: 360, h: 740, mobile: true },
@@ -37,42 +41,120 @@ const SIZES = [
   { name: 'desktop', w: 1280, h: 720, mobile: false },
 ];
 
-// 앱보다 먼저 실행돼요. mode: fresh(저장 지우고 시작) / keep(그대로) / blocked(저장 막힘) / long(긴 글자로 가득)
+// 시험에서는 진짜 Google 로그인과 진짜 Firestore 대신, 같은 모양의 "가짜 로그인·보관함"을 꽂아서 써요.
+// (진짜 로그인 창은 사람이 직접 눌러야 하고, 시험이 진짜 보관함을 어지럽히면 안 되니까요.)
+// 가짜 보관함은 Firestore 와 같은 약속을 지켜요: 쓰기는 로그인해야 되고, 고치기·지우기는 만든 사람만 돼요.
+// 진짜 연결은 맨 끝의 "진짜 Firebase 연결 확인"에서 읽기만 해 봐요.
+
+// 처음 들어 있는 "다른 사람이 만든" 플레이리스트 둘
+const sampleDocs = () => [
+  { id: 'sample-1', ownerUid: 'other-a', ownerNick: '구름이', name: '비 오는 날 듣는 노래',
+    songs: [{ t: '빗소리 산책', a: '달빛 밴드' }, { t: '우산 아래서', a: '하늘 트리오' }, { t: '창가의 오후', a: '달빛 밴드' }],
+    ratings: { x1: 5, x2: 4, x3: 4 }, createdAt: 1000 },
+  { id: 'sample-2', ownerUid: 'other-b', ownerNick: '바람이', name: '운동할 때 듣는 노래',
+    songs: [{ t: '한 바퀴 더', a: '번개 크루' }, { t: '숨이 차도', a: '번개 크루' }, { t: '결승선', a: '파도 합창단' }],
+    ratings: { x1: 4, x2: 5 }, createdAt: 500 },
+];
+
+// 경우마다 가짜 보관함에 미리 넣어 둘 것
+function seedFor(mode) {
+  const me = { uid: 'me', displayName: '홍길동 TEST', email: 'tester@example.com' };
+  const fake = { user: null, profiles: {}, docs: sampleDocs(), n: 0 };
+  let local = null;
+  if (mode === 'drag') {
+    const song = t => ({ t, a: '밴드' });
+    fake.user = me; fake.profiles.me = { nick: '별', createdAt: 1 };
+    fake.docs = [
+      { id: 'drag-1', ownerUid: 'me', ownerNick: '별', name: '끌기 시험', songs: ['가곡', '나곡', '다곡', '라곡'].map(song), ratings: {}, createdAt: 2000 },
+      { ...sampleDocs()[0], songs: sampleDocs()[0].songs.slice(0, 2), ratings: {} },
+    ];
+  }
+  if (mode === 'long') {
+    const A = 'ㄱ'.repeat(40), N = 'ㄴ'.repeat(20), T = 'ㅌ'.repeat(60), S = 'ㅅ'.repeat(40);
+    fake.user = me; fake.profiles.me = { nick: N, createdAt: 1 };
+    fake.docs = [
+      { id: 'long-1', ownerUid: 'me', ownerNick: N, name: A, songs: [{ t: T, a: S }, { t: 'abc', a: 'def' }], ratings: { me: 3, x: 5 }, createdAt: 3000 },
+      { id: 'long-2', ownerUid: 'other', ownerNick: N, name: A, songs: [{ t: T, a: S }], ratings: {}, createdAt: 2000 },
+      { ...sampleDocs()[0], songs: sampleDocs()[0].songs.slice(0, 1), ratings: { x1: 5 } },
+    ];
+  }
+  if (mode === 'migrate') {
+    // 로그인 기능을 붙이기 전에 이 기기에 저장돼 있던 기록 (내 것 둘 + 예전 예시 하나)
+    local = { myId: 'old-me', nick: '옛별명', playlists: [
+      { id: 'a', owner: 'old-me', maker: '옛별명', name: '옛 목록 하나', songs: [{ t: '옛곡', a: '옛가수' }], ratings: { 'old-me': 4, x: 2 } },
+      { id: 'b', owner: 'old-me', maker: '옛별명', name: '옛 목록 둘', songs: [], ratings: {} },
+      { id: 'c', owner: 'sample-a', maker: '구름이', name: '예전 예시', songs: [], ratings: {} },
+    ] };
+  }
+  return { fake, local };
+}
+
+// 페이지 안에서 돌아가는 가짜 로그인·보관함 (window.__fakeBackend 로 앱에 꽂혀요)
+const FAKE_BACKEND_JS = `(function () {
+  const KEY = '__fake';
+  const R = window.__fake = {
+    st: JSON.parse(localStorage.getItem(KEY) || '{"user":null,"profiles":{},"docs":[],"n":0}'),
+    failWrites: null, signInError: null, profileError: null, loadError: null,
+    nextUser: { uid: 'me-uid', displayName: '홍길동 TEST', email: 'tester@example.com' },
+  };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(R.st)); } catch (e) {} };
+  const clone = x => JSON.parse(JSON.stringify(x));
+  const err = code => Object.assign(new Error('가짜 서버 오류 ' + code), { code });
+  const authCbs = [], plCbs = [];
+  const snapshot = () => clone(R.st.docs).sort((a, b) => b.createdAt - a.createdAt);
+  const notify = () => plCbs.forEach(cb => cb(snapshot()));
+  const tick = () => new Promise(r => setTimeout(r, 5));
+  const uid = () => (R.st.user ? R.st.user.uid : null);
+  const find = id => R.st.docs.find(d => d.id === id);
+  // 쓰기: 실패하면 거절하고, 화면이 저장된 모습으로 돌아가게 알려 줘요 (진짜 Firestore 도 그래요)
+  const write = async fn => {
+    await tick();
+    try {
+      if (R.failWrites) throw err(R.failWrites);
+      if (!uid()) throw err('permission-denied');
+      fn();
+      save();
+      notify();
+    } catch (e) { notify(); throw e; }
+  };
+  window.__fakeBackend = {
+    onAuth(cb) { authCbs.push(cb); setTimeout(() => cb(R.st.user ? { uid: R.st.user.uid } : null), 10); return () => {}; },
+    async signIn() { await tick(); if (R.signInError) throw err(R.signInError); R.st.user = clone(R.nextUser); save(); authCbs.forEach(cb => cb({ uid: R.st.user.uid })); },
+    async signOut() { await tick(); R.st.user = null; save(); authCbs.forEach(cb => cb(null)); },
+    async getProfile(u) { await tick(); if (R.profileError) throw err(R.profileError); const p = R.st.profiles[u]; return p ? { nick: p.nick } : null; },
+    async createProfile(u, nick) { await tick(); if (R.failWrites) throw err(R.failWrites); if (u !== uid() || R.st.profiles[u]) throw err('permission-denied'); R.st.profiles[u] = { nick, createdAt: Date.now() }; save(); },
+    onPlaylists(cb, onError) { if (R.loadError) { setTimeout(() => onError(err(R.loadError)), 10); return () => {}; } plCbs.push(cb); setTimeout(() => cb(snapshot()), 10); return () => {}; },
+    newId() { R.st.n = (R.st.n || 0) + 1; save(); return 'f' + R.st.n; },
+    setPlaylist: (id, d) => write(() => { if (d.ownerUid !== uid()) throw err('permission-denied'); R.st.docs.push(Object.assign({ id }, clone(d))); }),
+    updatePlaylist: (id, patch) => write(() => { const d = find(id); if (!d || d.ownerUid !== uid()) throw err('permission-denied'); Object.assign(d, clone(patch)); }),
+    deletePlaylist: id => write(() => { const d = find(id); if (!d || d.ownerUid !== uid()) throw err('permission-denied'); R.st.docs = R.st.docs.filter(x => x.id !== id); }),
+    rate: (id, u, n) => write(() => { const d = find(id); if (!d || u !== uid()) throw err('permission-denied'); d.ratings = d.ratings || {}; if (n == null) delete d.ratings[u]; else d.ratings[u] = n; }),
+    importMany: list => write(() => { for (const x of list) { if (x.doc.ownerUid !== uid()) throw err('permission-denied'); R.st.docs.push(Object.assign({ id: x.id }, clone(x.doc))); } }),
+  };
+})();`;
+
+// 앱보다 먼저 실행돼요. mode: fresh(로그아웃, 다른 사람 것 둘) / drag·long(로그인한 채 시작) / loadfail(불러오기 실패)
+// / migrate(이 기기에 예전 기록이 남아 있음) / real(가짜 없이 진짜 Firebase)
 function hookScript(mode) {
+  const seed = seedFor(mode);
   return `(function () {
   const R = window.__check = { errors: [] };
   addEventListener('error', e => { if (!e.target || e.target === window) R.errors.push(e.message); }, true);
   addEventListener('unhandledrejection', e => R.errors.push(String(e.reason && e.reason.message || e.reason)));
   const mode = ${JSON.stringify(mode)};
+  if (mode === 'real') return; // 진짜 Firebase 를 써요 (가짜를 꽂지 않아요)
   // 끌기·섞기 시험은 같은 결과가 나오도록 Math.random 을 정해진 수열로 바꿔요
   if (mode === 'drag') Math.random = (() => { const seq = [0.1, 0.9, 0.5, 0.3, 0.7, 0.2]; let i = 0; return () => seq[i++ % seq.length]; })();
-  if (mode === 'blocked') {
-    Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('막힘', 'SecurityError'); } });
-    return;
-  }
   try {
     if (!sessionStorage.getItem('__started')) {
       sessionStorage.setItem('__started', '1');
       localStorage.clear();
-      if (mode === 'drag') {
-        const song = t => ({ t, a: '밴드' });
-        localStorage.setItem(${JSON.stringify(SAVE_KEY)}, JSON.stringify({ myId: 'me', nick: '별', playlists: [
-          { id: 'drag-1', owner: 'me', maker: '별', name: '끌기 시험', songs: ['가곡', '나곡', '다곡', '라곡'].map(song), ratings: {} },
-          { id: 'sample-1', owner: 'sample-a', maker: '구름이', name: '비 오는 날 듣는 노래',
-            songs: [{ t: '빗소리 산책', a: '달빛 밴드' }, { t: '우산 아래서', a: '하늘 트리오' }], ratings: {} },
-        ] }));
-      }
-      if (mode === 'long') {
-        const A = 'ㄱ'.repeat(40), N = 'ㄴ'.repeat(20), T = 'ㅌ'.repeat(60), S = 'ㅅ'.repeat(40);
-        localStorage.setItem(${JSON.stringify(SAVE_KEY)}, JSON.stringify({ myId: 'me', nick: N, playlists: [
-          { id: 'long-1', owner: 'me', maker: N, name: A, songs: [{ t: T, a: S }, { t: 'abc', a: 'def' }], ratings: { me: 3, x: 5 } },
-          { id: 'long-2', owner: 'other', maker: N, name: A, songs: [{ t: T, a: S }], ratings: {} },
-          { id: 'sample-1', owner: 'sample-a', maker: '구름이', name: '비 오는 날 듣는 노래',
-            songs: [{ t: '빗소리 산책', a: '달빛 밴드' }], ratings: { x1: 5 } },
-        ] }));
-      }
+      localStorage.setItem(${JSON.stringify(SAVE_KEY)}, ${JSON.stringify(JSON.stringify(seed.fake))});
+      ${seed.local ? `localStorage.setItem(${JSON.stringify(OLD_LOCAL_KEY)}, ${JSON.stringify(JSON.stringify(seed.local))});` : ''}
     }
   } catch (e) {}
+  ${FAKE_BACKEND_JS}
+  if (mode === 'loadfail') window.__fake.loadError = 'permission-denied';
 })();`;
 }
 
@@ -91,6 +173,7 @@ const REPORT_JS = `(() => {
     id: c.dataset.id, mine: c.dataset.mine === 'true',
     name: c.querySelector('h2').innerText, maker: c.querySelector('.maker strong').innerText,
     avg: c.querySelector('.avg').innerText,
+    rateMsg: c.querySelector('.rating .msg') ? c.querySelector('.rating .msg').innerText : null,
     stars: $$('button.star.on', c).length,
     songs: $$('.song', c).map(li => li.innerText.replace(/\\s+/g, ' ').replace(/ ?빼기$/, '')),
     removeBtns: $$('.remove-song', c).length,
@@ -104,7 +187,7 @@ const REPORT_JS = `(() => {
     prevOff: c.querySelector('[data-role=prev]') ? c.querySelector('[data-role=prev]').disabled : null,
     nextOff: c.querySelector('[data-role=next]') ? c.querySelector('[data-role=next]').disabled : null,
     nowText: c.querySelector('.now-text') ? c.querySelector('.now-text').innerText : null,
-    nowSongs: $$('li.now', c).map(li => li.innerText.replace(/s+/g, ' ').replace(/ ?빼기$/, '')),
+    nowSongs: $$('li.now', c).map(li => li.innerText.replace(/\\s+/g, ' ').replace(/ ?빼기$/, '')),
   }));
   const notice = document.getElementById('notice');
   const slot = document.getElementById('login-slot');
@@ -115,7 +198,17 @@ const REPORT_JS = `(() => {
     noMatch: !document.getElementById('no-match').hidden ? document.getElementById('no-match').innerText : null,
     search: document.getElementById('search').value, sort: document.getElementById('sort').value,
     count: document.getElementById('count').innerText,
-    notice: notice && !notice.hidden ? notice.innerText : null,
+    notice: notice && !notice.hidden ? document.getElementById('notice-text').innerText : null,
+    noticeKind: notice && !notice.hidden ? notice.className : null,
+    loading: !document.getElementById('loading').hidden,
+    auth: (() => {
+      const slot = document.getElementById('login-slot'), sub = document.getElementById('add-sub'), my = document.getElementById('my-nick');
+      const login = document.getElementById('login-btn');
+      return { slot: slot.innerText.replace(/\\s+/g, ' ').trim(), loginBtn: !!login && login.offsetParent !== null,
+        logoutBtn: !!document.getElementById('logout-btn'), nick: my ? my.innerText.trim() : null,
+        nickPanel: document.getElementById('nick-panel').offsetParent !== null, nickMsg: document.getElementById('nick-msg').innerText,
+        addSub: sub.innerText.trim(), addSubWarn: sub.classList.contains('warn') };
+    })(),
     slotText: slot ? slot.innerText.trim() : null,
     slotControls: slot ? slot.querySelectorAll('button, a, input').length : -1,
     createMsg: document.getElementById('create-msg').innerText,
@@ -169,6 +262,46 @@ const fillSubmit = (formExpr, values) => `(() => { const f = ${formExpr}; if (!f
   ${Object.entries(values).map(([k, v]) => `f.elements[${JSON.stringify(k)}].value = ${JSON.stringify(v)};`).join(' ')}
   f.requestSubmit(); return 'ok'; })()`;
 
+// 이 폴더의 index.html 만 내 주는 작은 서버 (localhost 는 Firebase 로그인의 승인된 주소라서, 파일로 열 때보다 진짜에 가까워요)
+function startServer() {
+  const server = http.createServer((req, res) => {
+    const p = new URL(req.url, 'http://x').pathname;
+    if (p !== '/' && p !== '/index.html') { res.writeHead(404); return res.end('not found'); }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(fs.readFileSync(path.join(WEEK_DIR, 'index.html')));
+  });
+  return new Promise(r => server.listen(0, '127.0.0.1', () => r(server)));
+}
+
+// 가짜 없이 진짜 Firebase 를 불러와 읽기만 해 봐요 (로그인 창은 사람이 직접 눌러야 해서 시험하지 않아요)
+async function realSmoke(cdp, ok, bad, notes, errors) {
+  const server = await startServer();
+  const tab = await openTab(cdp);
+  try {
+    await tab.s('Page.enable');
+    await tab.s('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await tab.s('Page.addScriptToEvaluateOnNewDocument', { source: hookScript('real') });
+    await tab.s('Page.navigate', { url: `http://localhost:${server.address().port}/index.html` });
+    let r = null;
+    for (let i = 0; i < 24; i++) {
+      await wait(500);
+      r = await report(tab);
+      if (r.auth.loginBtn && !r.loading) break;
+    }
+    r.errors.forEach(e => errors.add(e));
+    if (r.notice && r.notice.includes('Firebase 를 불러오지 못했어요')) bad.push(`[진짜 Firebase] Firebase 도구를 불러오지 못함: "${r.notice}"`);
+    else if (r.auth.loginBtn) ok.push('[진짜 Firebase] localhost 서버로 열면 진짜 Firebase 도구(app·auth·firestore 13.4.0)를 불러오고, 로그인 상태를 확인해서 "Google 로 로그인" 단추가 뜸');
+    else bad.push(`[진짜 Firebase] 12초 안에 로그인 단추가 안 뜸: ${JSON.stringify(r.auth)}`);
+    if (r.loading) notes.push('[진짜 Firebase] 12초가 지나도 목록이 "불러오는 중"이에요. (인터넷이 느리거나 막혀 있을 수 있어요)');
+    else if (r.notice && r.notice.includes('플레이리스트를 불러오지 못했어요')) notes.push(`[진짜 Firebase] 진짜 목록 읽기는 실패 안내가 떠요: "${r.notice}" → Firebase 콘솔에서 Firestore 데이터베이스를 만들고 firestore.rules 를 게시하면 풀려요. (안내가 화면에 잘 뜨는 것은 확인함)`);
+    else ok.push(`[진짜 Firebase] 진짜 Firestore 에서 목록을 읽음: 플레이리스트 ${r.cards.length}개${r.empty ? ' ("아직 없어요" 안내)' : ''}, 보안 규칙이 읽기를 허락함`);
+    await shoot(tab, path.join(SHOTS_DIR, `music-real-phone-390x844.png`), []);
+  } finally {
+    await tab.close();
+    server.close();
+  }
+}
+
 async function main() {
   const appFile = path.join(WEEK_DIR, 'index.html');
   if (!fs.existsSync(appFile)) { console.log(`index.html 이 없어요: ${WEEK_DIR}`); process.exit(1); }
@@ -176,7 +309,7 @@ async function main() {
 
   const { cdp, browser, close } = await launch();
   const pageUrl = pathToFileUrl(appFile);
-  const ok = [], bad = [], shots = [], errors = new Set();
+  const ok = [], bad = [], shots = [], notes = [], errors = new Set();
   const check = (cond, good, wrong) => (cond ? ok : bad).push(cond ? good : wrong);
   const collect = rep => rep.errors.forEach(e => errors.add(e));
 
@@ -197,9 +330,6 @@ async function main() {
       check(r.cards.every(c => !c.addForm && !c.renameForm && !c.deleteBtn && !c.removeBtns && !c.handles && c.note === 1),
         '[남이 만든 것] 예시(다른 사람 것)에는 곡 넣기·빼기·이름 바꾸기·지우기가 없고 "볼 수만 있어요" 안내만 있음',
         '[남이 만든 것] 다른 사람 것에 고치기·지우기 단추가 보임');
-      check(r.slotText === '로그인 자리' && r.slotControls === 0,
-        '[로그인 자리] 화면 위쪽에 "로그인 자리"라고만 적힌 빈 칸이 있고, 누를 단추나 입력칸은 없음',
-        `[로그인 자리] 문구/내용이 다름: "${r.slotText}", 단추 ${r.slotControls}개`);
 
       // 위쪽 줄: 찾기 단추는 제목 옆, 정렬은 작게 오른쪽 위
       const hd = r.head;
@@ -228,6 +358,61 @@ async function main() {
       check(r.head.rateLabels.length === 2 && r.head.rateLabels.every(t => t.startsWith('별점 주기')), `[별점] 카드마다 별 위에 "${r.head.rateLabels[0]}" 안내가 있음`, `[별점] 안내 글이 없거나 모자람: ${JSON.stringify(r.head.rateLabels)}`);
       check(cr >= 3, `[별점] 빈 별과 카드 바탕의 색 대비가 ${cr.toFixed(1)}:1 로 (기준 3:1 이상) 잘 보임`, `[별점] 빈 별이 바탕에 묻힘: 대비 ${cr.toFixed(1)}:1 (${r.head.starOff} / ${r.head.cardBg})`);
 
+      // ===== 로그인 전 (누구나 볼 수 있어요) =====
+      check(r.auth.loginBtn && !r.auth.logoutBtn && r.auth.slot === 'Google 로 로그인' && !r.loading,
+        '[로그인 전] 위쪽 오른쪽에 "Google 로 로그인" 단추가 있고, "불러오는 중" 안내는 사라짐 (로그인 안 해도 목록이 보임)', `[로그인 전] 로그인 자리가 이상함: ${JSON.stringify(r.auth)} 불러오는중 ${r.loading}`);
+      check(r.auth.addSub === '로그인하면 만들 수 있어요' && r.notice === null,
+        '[로그인 전] + 칸에 "로그인하면 만들 수 있어요"라고 적혀 있고, 오류 글은 없음', `[로그인 전] + 칸 안내가 이상함: "${r.auth.addSub}", 오류 글 ${r.notice}`);
+      await act(tab, `document.getElementById('add-open').click()`);
+      r = await report(tab);
+      check(!r.add.formShown && r.auth.addSubWarn && r.auth.addSub.includes('로그인'),
+        '[로그인 전] + 칸을 눌러도 입력칸은 열리지 않고, 로그인하라는 안내가 붉게 나옴', `[로그인 전] + 칸을 눌렀을 때 이상함: ${JSON.stringify(r.auth)} 입력칸 ${r.add.formShown}`);
+      const s1before = r.cards.find(c => c.id === 'sample-1').avg;
+      await act(tab, `${sampleCard}.querySelector('button.star[data-n="5"]').click()`);
+      r = await report(tab);
+      const s1after = r.cards.find(c => c.id === 'sample-1');
+      check(s1after.avg === s1before && s1after.rateMsg === '로그인하면 별점을 줄 수 있어요.',
+        '[로그인 전] 별을 눌러도 별점은 안 바뀌고 "로그인하면 별점을 줄 수 있어요" 안내가 나옴', `[로그인 전] 별점 누르기가 이상함: "${s1after.avg}", 안내 "${s1after.rateMsg}"`);
+
+      // ===== 로그인이 실패할 때: 오류 글이 보여야 해요 =====
+      for (const [code, word] of [['auth/popup-blocked', '팝업'], ['auth/popup-closed-by-user', '창을 닫았어요'], ['auth/unauthorized-domain', '승인된 도메인']]) {
+        await act(tab, `__fake.signInError = ${JSON.stringify(code)}; document.getElementById('login-btn').click()`);
+        await wait(250);
+        r = await report(tab);
+        check(r.notice && r.notice.startsWith('로그인하지 못했어요') && r.notice.includes(word) && r.noticeKind === 'error' && r.auth.loginBtn && !r.auth.logoutBtn,
+          `[로그인 실패] ${code} → 화면에 "${r.notice && r.notice.slice(0, 60)}…" 오류 글이 나오고, 로그아웃 상태 그대로, 단추도 다시 눌러짐`,
+          `[로그인 실패] ${code} 일 때 이상함: 오류 글 "${r.notice}", 단추 ${JSON.stringify(r.auth)}`);
+      }
+      await act(tab, `__fake.signInError = null; document.getElementById('notice-close').click()`);
+      r = await report(tab);
+      check(r.notice === null, '[로그인 실패] "닫기"를 누르면 오류 글이 사라짐', `[로그인 실패] 닫았는데 오류 글이 남음: "${r.notice}"`);
+
+      // ===== 처음 로그인: 별명 정하기 =====
+      await act(tab, `document.getElementById('login-btn').click()`);
+      await wait(350);
+      r = await report(tab); collect(r);
+      check(r.auth.logoutBtn && !r.auth.loginBtn && r.auth.nickPanel && r.auth.nick === '별명을 정해 주세요' && r.auth.addSub === '별명을 먼저 정해 주세요',
+        '[로그인] 처음 로그인하면 "별명을 정해 주세요" 칸이 열리고, 로그아웃 단추가 생기고, + 칸은 별명을 먼저 정하라고 안내함', `[로그인] 처음 로그인 모습이 이상함: ${JSON.stringify(r.auth)}`);
+      await act(tab, `document.getElementById('add-open').click()`);
+      r = await report(tab);
+      check(!r.add.formShown && r.auth.addSubWarn, '[로그인] 별명을 정하기 전에는 + 칸을 눌러도 만들기 칸이 안 열림', '[로그인] 별명 없이 만들기 칸이 열림');
+      await act(tab, `document.getElementById('nick-form').requestSubmit()`);
+      r = await report(tab);
+      check(r.auth.nickMsg === '별명을 적어 주세요.' && r.auth.nickPanel, `[로그인] 별명을 비워 두면 "${r.auth.nickMsg}" 안내가 나오고 칸이 그대로 있음`, `[로그인] 빈 별명 처리가 이상함: "${r.auth.nickMsg}"`);
+      await act(tab, `document.getElementById('nick-input').value = '  테스트  별명 '; document.getElementById('nick-form').requestSubmit()`);
+      await wait(350);
+      r = await report(tab); collect(r);
+      check(r.auth.nick === '테스트 별명 님' && !r.auth.nickPanel && r.auth.logoutBtn && r.auth.addSub === '',
+        `[로그인] 별명을 정하면 위쪽에 "${r.auth.nick}"으로 보이고, 별명 칸은 닫히고, + 칸 안내도 사라짐 (공백 정리됨)`, `[로그인] 별명 정한 뒤가 이상함: ${JSON.stringify(r.auth)}`);
+      const prof = r.saved.profiles['me-uid'];
+      const stored = JSON.stringify(r.saved.profiles) + JSON.stringify(r.saved.docs);
+      check(prof && JSON.stringify(Object.keys(prof).sort()) === JSON.stringify(['createdAt', 'nick']) && prof.nick === '테스트 별명',
+        '[저장하는 것] 별명 기록에는 별명과 만든 때만 들어감', `[저장하는 것] 별명 기록이 이상함: ${JSON.stringify(prof)}`);
+      check(!stored.includes('tester@example.com') && !stored.includes('홍길동'),
+        '[저장하는 것] Google 이름과 메일은 보관함 어디에도 저장되지 않음 (가짜 로그인이 일부러 이름·메일을 넘겨도)', '[저장하는 것] Google 이름이나 메일이 저장됨!');
+
+      r = await report(tab); collect(r);
+
       // + 칸
       check(r.add.btnShown && r.add.btnText === '+ 새 플레이리스트 만들기' && !r.add.formShown && r.add.expanded === 'false' && !r.add.oldPanel,
         `[+ 칸] 처음엔 입력칸 대신 "${r.add.btnText}" 칸(+)만 보이고, 위쪽의 따로 있던 만들기 칸은 없음`, `[+ 칸] 처음 모습이 이상함: ${JSON.stringify(r.add)}`);
@@ -235,7 +420,7 @@ async function main() {
       await act(tab, `document.getElementById('add-open').click()`);
       r = await report(tab);
       check(!r.add.btnShown && r.add.formShown && r.add.expanded === 'true' && r.add.focus === 'new-name',
-        '[+ 칸] +를 누르면 그 자리가 입력칸(이름·별명·만들기·취소)으로 바뀌고 이름 칸에 커서가 감', `[+ 칸] 열었는데 이상함: ${JSON.stringify(r.add)}`);
+        '[+ 칸] 로그인한 뒤 +를 누르면 그 자리가 입력칸(이름·만들기·취소)으로 바뀌고 이름 칸에 커서가 감', `[+ 칸] 열었는데 이상함: ${JSON.stringify(r.add)}`);
       await act(tab, `document.getElementById('new-name').value = '쓰다 만 것'; document.getElementById('add-cancel').click()`);
       r = await report(tab);
       check(r.add.btnShown && !r.add.formShown && r.cards.length === 2 && r.createMsg === '', '[+ 칸] 취소하면 아무것도 만들지 않고 다시 +로 돌아옴', `[+ 칸] 취소가 이상함: ${JSON.stringify(r.add)} 카드 ${r.cards.length}개`);
@@ -246,16 +431,12 @@ async function main() {
       r = await report(tab);
       check(r.add.btnShown && !r.add.formShown, '[+ 칸] Esc 키로도 닫힘', '[+ 칸] Esc 로 안 닫힘');
 
-      // 2. 만들기
+      // 2. 만들기 (별명은 로그인할 때 정했으니 이름만 적어요)
       await act(tab, `${OPEN}document.getElementById('create-form').requestSubmit()`);
       r = await report(tab);
       check(r.cards.length === 2 && /이름/.test(r.createMsg),
         `[만들기] 이름 없이 만들면 안내가 나오고 안 만들어짐: "${r.createMsg}"`, `[만들기] 이름 없이 눌렀을 때 안내/동작이 이상함: "${r.createMsg}", 카드 ${r.cards.length}개`);
-      await act(tab, `${OPEN}document.getElementById('new-name').value='산책할 때'; document.getElementById('new-nick').value=''; document.getElementById('create-form').requestSubmit();`);
-      r = await report(tab);
-      check(r.cards.length === 2 && /별명/.test(r.createMsg),
-        `[만들기] 별명 없이 만들면 안내: "${r.createMsg}"`, `[만들기] 별명 없이 눌렀을 때 안내/동작이 이상함: "${r.createMsg}"`);
-      await act(tab, `${OPEN}document.getElementById('new-nick').value='  테스트  별명 '; document.getElementById('create-form').requestSubmit();`);
+      await act(tab, `${OPEN}document.getElementById('new-name').value='  산책할   때 '; document.getElementById('create-form').requestSubmit();`);
       r = await report(tab); collect(r);
       const mine = r.cards.find(c => c.mine);
       check(r.add.btnShown && !r.add.formShown, '[+ 칸] 만들고 나면 입력칸이 닫히고 다시 +가 보임', `[+ 칸] 만든 뒤에도 입력칸이 열려 있음: ${JSON.stringify(r.add)}`);
@@ -264,6 +445,10 @@ async function main() {
         `[만들기] 새 플레이리스트가 이상함: ${JSON.stringify(mine)}`);
       check(mine && mine.addForm === 1 && mine.renameForm === 1 && mine.deleteBtn === 1 && mine.badge === '내가 만든 것',
         '[내 것] 내가 만든 것에는 곡 넣기·이름 바꾸기·지우기가 있음', '[내 것] 내 것의 고치기 도구가 빠짐');
+      const newDoc = r.saved.docs.find(d => d.name === '산책할 때');
+      check(newDoc && JSON.stringify(Object.keys(newDoc).sort()) === JSON.stringify(['createdAt', 'id', 'name', 'ownerNick', 'ownerUid', 'ratings', 'songs']) && newDoc.ownerUid === 'me-uid' && newDoc.ownerNick === '테스트 별명',
+        '[저장하는 것] 새 플레이리스트 기록에는 만든 사람의 고유 번호(uid)와 별명, 이름, 곡, 별점, 만든 때만 들어감', `[저장하는 것] 기록 모양이 이상함: ${JSON.stringify(newDoc)}`);
+      
 
       // 곡 넣기·빼기
       await act(tab, fillSubmit(`${mineCard}.querySelector('form.add-song')`, { title: '', artist: '가수' }));
@@ -351,7 +536,7 @@ async function main() {
       check(m && m.name === '아침 산책 노래' && m.maker === '테스트 별명' && m.songs.length === 1 && m.avg.startsWith('4.0점') && r.cards.length === 3,
         `[남기기] 새로 열어도 그대로: "${m && m.name}" · ${m && m.maker} · 곡 ${m && m.songs.length}개 · ${m && m.avg}, 남의 것에 준 별점도 유지(${(r.cards.find(c => c.id === 'sample-1') || {}).avg})`,
         `[남기기] 새로 열었더니 달라짐: ${JSON.stringify(r.cards.map(c => [c.name, c.avg, c.songs.length]))}`);
-      check(r.saved && r.saved.playlists.length === 3, '[남기기] 저장 칸(localStorage)에 3개가 들어 있음', '[남기기] 저장 칸 내용이 이상함');
+      check(r.saved && r.saved.docs.length === 3, '[남기기] 보관함에 플레이리스트 3개가 들어 있음 (새로 열어도 로그인이 유지돼서 별명·내 것이 그대로)', '[남기기] 저장 칸 내용이 이상함');
 
       // 6번 기능: 찾기와 정렬
       const setSearch = v => act(tab, `(() => { if (document.getElementById('search-bar').hidden) document.getElementById('search-toggle').click(); const e = document.getElementById('search'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
@@ -403,22 +588,56 @@ async function main() {
       await act(tab, `${mineCard}.querySelector('button.delete').click()`);
       await act(tab, `${mineCard}.querySelector('.confirm-delete').click()`);
       r = await report(tab);
-      check(r.cards.length === 3 && r.saved.playlists.length === 3 && r.count === '전체 3개 중 3개 보여요', '[찾기] 시험으로 만든 것을 지워 3개로 되돌림 (개수 표시도 맞음)', `[찾기] 되돌리기 실패: ${r.cards.length}개`);
+      check(r.cards.length === 3 && r.saved.docs.length === 3 && r.count === '전체 3개 중 3개 보여요', '[찾기] 시험으로 만든 것을 지워 3개로 되돌림 (개수 표시도 맞음)', `[찾기] 되돌리기 실패: ${r.cards.length}개`);
       await tab.s('Page.reload'); await wait(800);
       r = await report(tab);
       check(r.search === '' && r.sort === 'new' && r.cards.length === 3, '[찾기] 새로 열면 찾기·정렬은 처음 상태 (저장하지 않음, 목록은 그대로)', `[찾기] 새로 열었을 때 이상함: 찾기 "${r.search}", 정렬 ${r.sort}`);
 
-      // 4. 내 아이디어: 내 표시가 달라지면(다른 기기에서 열면) 내 것도 보기만 됨
-      await act(tab, `(() => { const d = JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)})); d.myId = 'another-device'; localStorage.setItem(${JSON.stringify(SAVE_KEY)}, JSON.stringify(d)); })()`);
-      await tab.s('Page.reload'); await wait(800);
+      // 4. 내 아이디어: 다른 사람에게도 내 플레이리스트는 보이지만, 고치거나 지울 수는 없음
+      const swap = async js => { await act(tab, js); await wait(400); };
+      await swap(`document.getElementById('logout-btn').click()`);
       r = await report(tab); collect(r);
-      const theirs = r.cards.find(c => c.name === '아침 산책 노래');
-      check(theirs && !theirs.mine && !theirs.addForm && !theirs.renameForm && !theirs.deleteBtn && !theirs.removeBtns && !theirs.handles && theirs.note === 1 && theirs.songs.length === 1,
-        '[남이 만든 것] 다른 기기(내 표시가 다름)에서 열면 내가 만든 것도 보이긴 하지만 곡·이름·지우기 도구가 없음',
-        `[남이 만든 것] 다른 기기에서 열었는데 고칠 수 있거나 안 보임: ${JSON.stringify(theirs)}`);
-      check(r.cards.every(c => !c.mine), '[남이 만든 것] 그 기기에서는 "내가 만든 것"이 하나도 없음', '[남이 만든 것] 내 것으로 잘못 보이는 카드가 있음');
-      await act(tab, `(() => { const d = JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)})); d.myId = d.playlists.find(p => p.name === '아침 산책 노래').owner; localStorage.setItem(${JSON.stringify(SAVE_KEY)}, JSON.stringify(d)); })()`);
-      await tab.s('Page.reload'); await wait(800);
+      let theirs = r.cards.find(c => c.name === '아침 산책 노래');
+      check(r.auth.loginBtn && !r.auth.logoutBtn && theirs && !theirs.mine && !theirs.addForm && !theirs.renameForm && !theirs.deleteBtn && !theirs.removeBtns && !theirs.handles && theirs.note === 1 && theirs.songs.length === 1,
+        '[로그아웃] 로그아웃하면 내 플레이리스트가 목록에는 그대로 보이지만 곡·이름·지우기 도구는 사라지고, 로그인 단추가 다시 나옴',
+        `[로그아웃] 로그아웃했는데 이상함: ${JSON.stringify(r.auth)} / ${JSON.stringify(theirs)}`);
+      // 다른 사람이 로그인
+      await swap(`__fake.st.profiles['other-me'] = { nick: '다른사람', createdAt: 1 }; __fake.nextUser = { uid: 'other-me', displayName: '다른 TEST', email: 'other@example.com' }; document.getElementById('login-btn').click()`);
+      r = await report(tab); collect(r);
+      theirs = r.cards.find(c => c.name === '아침 산책 노래');
+      check(r.auth.nick === '다른사람 님' && theirs && !theirs.mine && theirs.maker === '테스트 별명' && !theirs.addForm && !theirs.renameForm && !theirs.deleteBtn && !theirs.removeBtns && !theirs.handles && theirs.note === 1,
+        '[남이 만든 것] 다른 사람으로 로그인하면 내 플레이리스트가 "테스트 별명"이 만든 것으로 보이긴 하지만, 곡·이름·지우기·순서 도구가 없음 (내 아이디어)',
+        `[남이 만든 것] 다른 사람으로 로그인했는데 고칠 수 있거나 안 보임: ${JSON.stringify(theirs)}`);
+      check(r.cards.every(c => !c.mine) && r.cards.length === 3, '[남이 만든 것] 그 사람에게는 "내가 만든 것"이 하나도 없음', '[남이 만든 것] 내 것으로 잘못 보이는 카드가 있음');
+      // 다른 사람도 별점은 줄 수 있음 (규칙: 별점 칸 안의 "내 칸"만 바꿈)
+      await swap(`document.querySelector('.card[data-id="${theirs.id}"] button.star[data-n="2"]').click()`);
+      r = await report(tab);
+      check(r.cards.find(c => c.id === theirs.id).avg.startsWith('3.0점 (2명)') && r.saved.docs.find(d => d.id === theirs.id).ratings['other-me'] === 2 && r.saved.docs.find(d => d.id === theirs.id).ratings['me-uid'] === 4,
+        '[남이 만든 것] 다른 사람도 별점은 줄 수 있고, 내 별점(4점)은 그대로 둔 채 자기 칸만 늘어남 (3.0점·2명)', `[남이 만든 것] 다른 사람의 별점이 이상함: ${JSON.stringify(r.saved.docs.find(d => d.id === theirs.id).ratings)}`);
+      await swap(`document.querySelector('.card[data-id="${theirs.id}"] button.star[data-n="2"]').click()`);
+      // 원래 계정으로 돌아오기: 이미 별명이 있으니 다시 묻지 않음
+      await swap(`document.getElementById('logout-btn').click()`);
+      await swap(`__fake.nextUser = { uid: 'me-uid', displayName: '홍길동 TEST', email: 'tester@example.com' }; document.getElementById('login-btn').click()`);
+      r = await report(tab); collect(r);
+      check(r.auth.nick === '테스트 별명 님' && !r.auth.nickPanel && r.cards.some(c => c.mine && c.name === '아침 산책 노래') && r.cards.find(c => c.id === theirs.id).avg.startsWith('4.0점 (1명)'),
+        '[로그인] 내 계정으로 다시 로그인하면 별명을 다시 묻지 않고, 내 플레이리스트가 내 것으로 돌아오고 도구도 다시 생김', `[로그인] 다시 로그인한 모습이 이상함: ${JSON.stringify(r.auth)} / ${JSON.stringify(r.cards.map(c => [c.name, c.mine]))}`);
+
+      // 저장이 실패할 때: 오류 글이 보이고, 화면은 저장된 모습으로 돌아와요
+      await act(tab, `__fake.failWrites = 'permission-denied'`);
+      await act(tab, fillSubmit(`${mineCard}.querySelector('form.rename')`, { name: '실패할 이름' }));
+      await wait(250);
+      r = await report(tab);
+      check(r.notice && r.notice.startsWith('이름을 저장하지 못했어요') && r.notice.includes('권한') && r.noticeKind === 'error',
+        `[저장 실패] 이름을 저장하지 못하면 화면에 "${r.notice && r.notice.slice(0, 50)}…" 오류 글이 나옴`, `[저장 실패] 오류 글이 없거나 이상함: "${r.notice}"`);
+      check(r.cards.find(c => c.mine).name === '아침 산책 노래', '[저장 실패] 저장이 안 됐으니 화면의 이름도 저장된 이름("아침 산책 노래")으로 돌아옴', `[저장 실패] 화면과 저장이 어긋남: "${r.cards.find(c => c.mine).name}"`);
+      await act(tab, `__fake.failWrites = 'unavailable'; document.getElementById('notice-close').click()`);
+      await act(tab, `${OPEN}document.getElementById('new-name').value='저장 안 될 것'; document.getElementById('create-form').requestSubmit();`);
+      await wait(250);
+      r = await report(tab);
+      check(r.notice && r.notice.startsWith('플레이리스트를 저장하지 못했어요') && r.notice.includes('서버에 연결') && r.cards.length === 3 && !r.cards.some(c => c.name === '저장 안 될 것'),
+        '[저장 실패] 인터넷이 끊겨 만들기가 실패하면 "서버에 연결하지 못했어요" 오류 글이 나오고, 만들어진 것처럼 보이던 카드도 사라짐', `[저장 실패] 만들기 실패 처리가 이상함: "${r.notice}", 카드 ${r.cards.length}개`);
+      await act(tab, `__fake.failWrites = null; document.getElementById('notice-close').click()`);
+      await act(tab, `document.getElementById('add-cancel').click()`);
 
       // 지우기 (되묻기)
       await act(tab, `${mineCard}.querySelector('[data-role="play"]').click()`); // 재생 중에 지우면 어떻게 되는지 보려고 먼저 재생
@@ -431,7 +650,7 @@ async function main() {
       await act(tab, `${mineCard}.querySelector('button.delete').click()`);
       await act(tab, `${mineCard}.querySelector('.confirm-delete').click()`);
       r = await report(tab); collect(r);
-      check(r.cards.length === 2 && !r.cards.some(c => c.mine) && r.saved.playlists.length === 2, '[지우기] 지우기를 확인하면 사라지고 저장에서도 빠짐', `[지우기] 지웠는데 남음: ${r.cards.length}개`);
+      check(r.cards.length === 2 && !r.cards.some(c => c.mine) && r.saved.docs.length === 2, '[지우기] 지우기를 확인하면 사라지고 저장에서도 빠짐', `[지우기] 지웠는데 남음: ${r.cards.length}개`);
       check(r.cards.every(c => !c.deleteBtn), '[지우기] 예시(남의 것)는 지울 방법이 없음', '[지우기] 남의 것에 지우기가 있음');
       check(r.cards.every(c => c.playLabel === '재생' && !c.nowSongs.length), '[재생] 재생 중이던 내 목록을 지우면 소리도 멈춤 (남은 목록은 모두 "재생" 상태)', `[재생] 지운 뒤에도 재생 상태가 남음: ${JSON.stringify(r.cards.map(c => [c.name, c.playLabel]))}`);
 
@@ -447,7 +666,7 @@ async function main() {
         return { text: li.innerText.replace(/\\s+/g, ' ').replace(/ ?빼기$/, '').split(' · ')[0], hx: h && h.left + h.width / 2, hy: h && h.top + h.height / 2, cy: r.top + r.height / 2 };
       }); })()`));
       const orderOf = async t => (await rowsOf(t)).map(x => x.text);
-      const savedOf = async t => (await evaluate(t, `JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)})).playlists.find(p => p.id === 'drag-1').songs.map(s => s.t)`));
+      const savedOf = async t => (await evaluate(t, `JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)})).docs.find(d => d.id === 'drag-1').songs.map(s => s.t)`));
       const handlesOf = async t => (await report(t)).cards.map(cd => cd.id + ':' + cd.handles).join(' ');
       const same = (a, b) => a.join(',') === b.join(',');
 
@@ -625,20 +844,54 @@ async function main() {
       }
     }
 
-    // 5. 저장이 막힐 때
-    const blockedTab = await openApp(cdp, pageUrl, 'blocked', SIZES[0]);
-    try {
-      let r = await evaluate(blockedTab, REPORT_JS.replace(/saved: \(\(\) => \{.*?\}\)\(\),/s, 'saved: null,'));
-      check(r.cards.length === 2 && r.notice && r.notice.includes('저장'), `[저장 막힘] 저장이 막혀도 화면은 열리고 안내가 나옴: "${r.notice}"`, `[저장 막힘] 안내가 없거나 화면이 안 열림: 카드 ${r.cards.length}개, 안내 ${r.notice}`);
-      await evaluate(blockedTab, `${OPEN}document.getElementById('new-name').value='막힌 곳'; document.getElementById('new-nick').value='별명'; document.getElementById('create-form').requestSubmit();`);
-      await wait(200);
-      r = await evaluate(blockedTab, REPORT_JS.replace(/saved: \(\(\) => \{.*?\}\)\(\),/s, 'saved: null,'));
-      check(r.cards.some(c => c.mine && c.name === '막힌 곳'), '[저장 막힘] 저장이 막혀도 만들기는 지금 화면에서 됨', '[저장 막힘] 만들기가 멈춤');
-      collect(r);
-      await shoot(blockedTab, path.join(SHOTS_DIR, `music-blocked-${SIZES[0].name}-${SIZES[0].w}x${SIZES[0].h}.png`), shots);
-    } finally {
-      await blockedTab.close();
+    // 9. 불러오기가 실패할 때
+    {
+      const lf = await openApp(cdp, pageUrl, 'loadfail', SIZES[0]);
+      try {
+        const r = await report(lf); collect(r);
+        check(r.notice && r.notice.startsWith('플레이리스트를 불러오지 못했어요') && r.notice.includes('권한') && !r.loading && r.auth.loginBtn && r.cards.length === 0,
+          `[불러오기 실패] 목록을 못 불러오면 "불러오는 중"에서 멈추지 않고 오류 글("${r.notice && r.notice.slice(0, 40)}…")을 보여 주고, 로그인 단추는 그대로 있음`,
+          `[불러오기 실패] 오류 글이 없거나 멈춤: "${r.notice}", 불러오는중 ${r.loading}, 카드 ${r.cards.length}개`);
+        check(!r.empty, '[불러오기 실패] 못 불러온 것을 "아직 플레이리스트가 없어요"로 착각하게 하지 않음', '[불러오기 실패] 실패했는데 "아직 없어요"라고 나옴');
+        await shoot(lf, path.join(SHOTS_DIR, `music-loadfail-${SIZES[0].name}-${SIZES[0].w}x${SIZES[0].h}.png`), shots);
+      } finally {
+        await lf.close();
+      }
     }
+
+    // 10. 이 기기에 저장해 두었던 예전 기록을 내 계정으로 옮기기
+    {
+      const mg = await openApp(cdp, pageUrl, 'migrate', SIZES[1]);
+      try {
+        let r = await report(mg); collect(r);
+        const oldKeyAlive = () => evaluate(mg, `localStorage.getItem(${JSON.stringify(OLD_LOCAL_KEY)}) !== null`);
+        check(r.saved.docs.length === 2 && await oldKeyAlive(), '[옮기기] 로그인하기 전에는 이 기기의 예전 기록을 건드리지 않음', '[옮기기] 로그인 전에 예전 기록이 사라지거나 올라감');
+        await act(mg, `document.getElementById('login-btn').click()`);
+        await wait(350);
+        check(await oldKeyAlive() && (await report(mg)).saved.docs.length === 2, '[옮기기] 로그인만 하고 별명을 정하기 전에는 아직 옮기지 않음', '[옮기기] 별명 전에 옮겨 버림');
+        await act(mg, `document.getElementById('nick-input').value = '이사온 별명'; document.getElementById('nick-form').requestSubmit()`);
+        await wait(600);
+        r = await report(mg); collect(r);
+        const moved = r.saved.docs.filter(d => d.ownerUid === 'me-uid');
+        const first = moved.find(d => d.name === '옛 목록 하나');
+        check(moved.length === 2 && first && first.ownerNick === '이사온 별명' && first.songs.length === 1 && first.songs[0].t === '옛곡' && JSON.stringify(first.ratings) === JSON.stringify({ 'me-uid': 4 }),
+          '[옮기기] 별명을 정하면 이 기기에 있던 내 플레이리스트 2개가 내 계정으로 올라감 (곡과 내 별점 4점 포함, 남이 남긴 별점은 안 가져옴)', `[옮기기] 옮겨진 것이 이상함: ${JSON.stringify(moved)}`);
+        check(!r.saved.docs.some(d => d.name === '예전 예시'), '[옮기기] 예전 예시(내 것이 아니었던 것)는 옮기지 않음', '[옮기기] 내 것이 아닌 것까지 올라감');
+        check(!(await oldKeyAlive()), '[옮기기] 옮긴 뒤에는 이 기기의 예전 기록을 지워서 다시 올라가지 않게 함', '[옮기기] 예전 기록이 남아 있음');
+        check(r.notice && r.noticeKind === 'info' && r.notice.includes('2개'), `[옮기기] "${r.notice}" 안내가 나옴`, `[옮기기] 안내가 없거나 이상함: "${r.notice}"`);
+        check(r.cards.filter(c => c.mine).map(c => c.name).join('|') === '옛 목록 하나|옛 목록 둘' && r.cards.find(c => c.name === '옛 목록 하나').avg.startsWith('4.0점 (1명)'),
+          '[옮기기] 화면에서도 옮긴 2개가 내 것으로, 이 기기에서 보이던 순서대로 보임', `[옮기기] 화면이 이상함: ${JSON.stringify(r.cards.map(c => [c.name, c.mine, c.avg]))}`);
+        await mg.s('Page.reload'); await wait(900);
+        r = await report(mg); collect(r);
+        check(r.saved.docs.length === 4 && r.notice === null && r.cards.filter(c => c.mine).length === 2, '[옮기기] 새로 열어도 두 번 올라가지 않음 (전체 4개 그대로)', `[옮기기] 새로 열었더니 이상함: 문서 ${r.saved.docs.length}개, 안내 ${r.notice}`);
+        check(!r.errors.length, '[옮기기] 시험하는 동안 자바스크립트 오류 없음', '[옮기기] 오류: ' + r.errors.join(' / '));
+      } finally {
+        await mg.close();
+      }
+    }
+
+    // 11. 진짜 Firebase 연결 확인 (읽기만 해요. 로그인은 사람이 해야 해서 눌러 보지 않아요)
+    await realSmoke(cdp, ok, bad, notes, errors);
 
     // 6. 화면 크기 (긴 글자로 가득 채운 상태)
     for (const sz of SIZES) {
@@ -678,11 +931,12 @@ async function main() {
   ok.push(`화면 사진 ${shots.length}장 찍음:`);
 
   const unchecked = [
-    '진짜 폰에서 손가락으로 눌러 보기 (별·단추 누르기 편한지는 사진과 크기로만 봤어요)',
-    '진짜 다른 사람의 기기에서 내 플레이리스트가 보이는지 (이 기기 안에서 "내 표시가 다른 기기"를 흉내 낸 것뿐이에요. 진짜는 로그인과 보관함이 있어야 해요)',
-    '스피커로 소리가 실제로 들리는지 (화면 없는 브라우저라서 단추·표시·시간 흐름만 봤어요. 귀로 들어 보는 건 직접 해 보셔야 해요)',
-    '여러 탭을 동시에 열어 두고 고칠 때 서로 덮어쓰는지',
-    '브라우저 저장 공간이 꽉 찼을 때 (저장 막힘 안내로만 흉내 냈어요)',
+    '진짜 Google 로그인 창 (사람이 직접 눌러서 로그인해야 해서, 시험은 같은 모양의 가짜 로그인으로 했어요. GitHub Pages 주소에서 직접 눌러 보셔야 해요)',
+    'Firebase 콘솔 설정이 되어 있는지: Google 로그인 켜기, 승인된 도메인에 namhh0122.github.io 넣기, Firestore 데이터베이스 만들기',
+    'firestore.rules 가 진짜로 지켜 주는지 (규칙 시험용 에뮬레이터를 설치하지 않아서, 규칙을 눈으로만 점검했어요. 콘솔에 붙인 뒤 직접 눌러 보셔야 해요)',
+    '두 기기에서 동시에 열어 놓고 서로 바뀌는 것이 보이는지 (같은 계정·다른 기기)',
+    '진짜 폰에서 손가락으로 눌러 보기',
+    '스피커로 소리가 실제로 들리는지 (화면 없는 브라우저라서 단추·표시·시간 흐름만 봤어요)',
   ];
 
   console.log(`\n=== 확인 결과: 내 작품 (${path.relative(ROOT_DIR, appFile)}) ===`);
@@ -693,6 +947,10 @@ async function main() {
   if (bad.length) {
     console.log('\n[문제]');
     for (const line of bad) console.log('- ' + line);
+  }
+  if (notes.length) {
+    console.log('\n[참고]');
+    for (const line of notes) console.log('- ' + line);
   }
   console.log('\n[확인하지 못한 것]');
   for (const line of unchecked) console.log('- ' + line);

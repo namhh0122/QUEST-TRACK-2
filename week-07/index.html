@@ -57,23 +57,31 @@
   #filter-form button { flex: none; }
   h1 { margin: 0; font-size: clamp(18px, 5vw, 22px); font-weight: 700; color: var(--accent); white-space: nowrap; }
   .sub { margin: 0; font-size: 14px; color: var(--muted); }
-  #login-slot {
-    padding: 6px 14px;
-    border: 2px dashed var(--line-strong);
-    border-radius: 12px;
-    color: var(--muted);
-    text-align: center;
-  }
+  #login-slot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; color: var(--text); font-size: 15px; }
+  .login-state { overflow-wrap: anywhere; }
+  .login-state strong { color: var(--accent); }
+  button.login-btn { min-height: 40px; padding: 4px 14px; font-size: 15px; }
+  #nick-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #nick-form input { flex: 1 1 200px; width: auto; }
+  #nick-panel .hint { margin: 0 0 10px; }
+  #loading { margin-top: 16px; text-align: center; color: var(--muted); }
 
   #notice {
     margin: 12px 0 0;
     padding: 10px 14px;
     border-radius: 10px;
-    background: #2a2008;
-    border: 1px solid #7a5a12;
-    color: #ffd78a;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: #2b1012;
+    border: 1px solid #7a2f33;
+    color: #ffb8b4;
     overflow-wrap: anywhere;
   }
+  #notice.info { background: var(--green-soft); border-color: var(--line-strong); color: var(--accent-dim); }
+  #notice-text { flex: 1 1 200px; min-width: 0; }
   #notice[hidden] { display: none; }
 
   h2 { margin: 0; overflow-wrap: anywhere; }
@@ -159,6 +167,9 @@
   }
   #add-open:hover { background: var(--green-soft); }
   #add-open .plus { font-size: 56px; line-height: 1; font-weight: 300; }
+  .add-sub { font-size: 14px; font-weight: 400; color: var(--muted); padding: 0 12px; text-align: center; word-break: keep-all; }
+  .add-sub:empty { display: none; }
+  .add-sub.warn { color: var(--danger); font-weight: 600; }
   #create-form { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
   #create-form h2 { font-size: 18px; font-weight: 700; color: var(--accent); }
   #create-form label { flex: none; }
@@ -262,7 +273,7 @@
     </div>
     <div class="head-bottom">
       <p class="sub">플레이리스트를 만들어 두고 언제든지 즐겨요</p>
-      <div id="login-slot">로그인 자리</div>
+      <div id="login-slot" aria-live="polite"></div>
     </div>
   </header>
 
@@ -274,23 +285,35 @@
     </form>
   </div>
 
-  <p id="notice" role="status" hidden></p>
+  <section id="nick-panel" class="panel" aria-labelledby="nick-title" hidden>
+    <h2 id="nick-title">별명을 정해 주세요</h2>
+    <p class="hint">처음 로그인했어요. 플레이리스트 카드에 "만든 사람"으로 보일 별명이에요. 실명은 쓰지 마세요. 한 번 정하면 바꿀 수 없어요.</p>
+    <form id="nick-form" autocomplete="off">
+      <input type="text" id="nick-input" maxlength="20" placeholder="별명 (20자까지)" aria-label="별명">
+      <button type="submit">별명 정하기</button>
+      <p class="msg" id="nick-msg" role="alert"></p>
+    </form>
+  </section>
 
-  <p id="empty" hidden>아직 플레이리스트가 없어요. + 칸을 눌러 하나 만들어 보세요.</p>
+  <div id="notice" role="alert" hidden>
+    <span id="notice-text"></span>
+    <button type="button" id="notice-close" class="plain small">닫기</button>
+  </div>
+
+  <p id="loading">플레이리스트를 불러오는 중이에요…</p>
+  <p id="empty" hidden>아직 플레이리스트가 없어요. 로그인하고 + 칸을 눌러 첫 플레이리스트를 만들어 보세요.</p>
   <p id="no-match" hidden>찾는 이름의 플레이리스트가 없어요. 다른 글자로 찾아 보세요.</p>
   <section id="board" aria-label="플레이리스트 목록">
     <div id="add-tile" class="add-tile">
       <button type="button" id="add-open" aria-expanded="false" aria-controls="create-form">
         <span class="plus" aria-hidden="true">+</span>
         <span>새 플레이리스트 만들기</span>
+        <span id="add-sub" class="add-sub" aria-live="polite"></span>
       </button>
       <form id="create-form" autocomplete="off" aria-label="새 플레이리스트 만들기" hidden>
         <h2>새 플레이리스트</h2>
         <label>플레이리스트 이름
           <input type="text" id="new-name" maxlength="40" placeholder="예: 비 오는 날 노래">
-        </label>
-        <label>만든 사람 (별명)
-          <input type="text" id="new-nick" maxlength="20" placeholder="실명 말고 별명">
         </label>
         <div class="form-buttons">
           <button type="submit">만들기</button>
@@ -303,69 +326,90 @@
   </section>
 
   <footer>
-    플레이리스트는 이 기기의 브라우저에만 저장돼요. 다른 사람의 것은 볼 수만 있고 고치거나 지울 수 없어요.
-    처음 들어 있는 두 개는 보여 주려고 넣은 예시이고, 곡 이름도 지어낸 거예요.
+    누구나 플레이리스트를 볼 수 있어요. 로그인(Google)하면 만들고 별점을 줄 수 있고, 내가 만든 것만 고치거나 지울 수 있어요.
+    기록은 Firebase(Firestore)에 저장돼서 어느 기기에서 로그인해도 이어서 보여요. 저장하는 것은 내 별명과 고유 번호뿐이고, Google 이름과 메일은 저장하지 않아요.
     재생하면 진짜 곡 대신, 곡 이름으로 만든 짧은 멜로디가 나와요.
   </footer>
 </div>
 
-<script>
-'use strict';
+<script type="module">
+/* ---------- 저장하는 코드는 여기 한곳에만 있어요 ----------
+   로그인은 Firebase Auth(Google, 팝업), 기록은 Firestore 에 저장해요.
+   아래 이름표(firebaseConfig)는 공개해도 되는 값이에요. 지키는 일은 firestore.rules 규칙이 해요. */
+const firebaseConfig = {
+  apiKey: "AIzaSyDlHUfuywtI2dAvbgYHWNRF5AtvH0gbgvo",
+  authDomain: "play-list-5f761.firebaseapp.com",
+  projectId: "play-list-5f761",
+  storageBucket: "play-list-5f761.firebasestorage.app",
+  messagingSenderId: "603535058650",
+  appId: "1:603535058650:web:bc5c7ca75f6aa499a1a7e3"
+};
+const FIREBASE_VERSION = '13.4.0';
+const LOCAL_KEY = 'week07-music'; // 예전에 이 기기에 저장하던 기록. 로그인하면 Firestore 로 옮기고 지워요.
 
-/* ---------- 저장하는 코드는 여기 한곳에만 있어요 ---------- */
+// Firebase 를 불러와 앱이 쓰는 모양으로 감싸요. (확인 도구는 window.__fakeBackend 로 가짜를 꽂아 시험해요)
+async function loadFirebase() {
+  const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/`;
+  const [{ initializeApp }, A, F] = await Promise.all([
+    import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js'),
+  ]);
+  const app = initializeApp(firebaseConfig);
+  const auth = A.getAuth(app);
+  const db = F.getFirestore(app);
+  const plCol = F.collection(db, 'playlists');
+  const toPlaylist = d => {
+    const x = d.data();
+    return { id: d.id, ownerUid: x.ownerUid, ownerNick: x.ownerNick, name: x.name, songs: x.songs || [], ratings: x.ratings || {}, createdAt: x.createdAt || 0 };
+  };
+  return {
+    // Google 이름·메일은 받아도 쓰지 않고, 고유 번호(uid)만 넘겨요
+    onAuth: cb => A.onAuthStateChanged(auth, u => cb(u ? { uid: u.uid } : null)),
+    signIn: () => A.signInWithPopup(auth, new A.GoogleAuthProvider()),
+    signOut: () => A.signOut(auth),
+    getProfile: async uid => { const snap = await F.getDoc(F.doc(db, 'profiles', uid)); return snap.exists() ? { nick: snap.data().nick } : null; },
+    createProfile: (uid, nick) => F.setDoc(F.doc(db, 'profiles', uid), { nick, createdAt: Date.now() }),
+    onPlaylists: (cb, onError) => F.onSnapshot(F.query(plCol, F.orderBy('createdAt', 'desc')), snap => cb(snap.docs.map(toPlaylist)), onError),
+    newId: () => F.doc(plCol).id,
+    setPlaylist: (id, d) => F.setDoc(F.doc(db, 'playlists', id), d),
+    updatePlaylist: (id, patch) => F.updateDoc(F.doc(db, 'playlists', id), patch),
+    deletePlaylist: id => F.deleteDoc(F.doc(db, 'playlists', id)),
+    rate: (id, uid, n) => F.updateDoc(F.doc(db, 'playlists', id), { ['ratings.' + uid]: n == null ? F.deleteField() : n }),
+    importMany: async list => { const batch = F.writeBatch(db); for (const x of list) batch.set(F.doc(db, 'playlists', x.id), x.doc); await batch.commit(); },
+  };
+}
+
 const Store = (() => {
-  const KEY = 'week07-music';
-  let ok = true; // 브라우저가 저장을 허락하는지
-
-  function newId() {
-    return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  }
-
-  function seed() {
-    return {
-      myId: newId(), // 이 기기(브라우저)를 알아보는 표시. 로그인이 아니에요.
-      nick: '',
-      playlists: [
-        { id: 'sample-1', owner: 'sample-a', maker: '구름이', name: '비 오는 날 듣는 노래',
-          songs: [{ t: '빗소리 산책', a: '달빛 밴드' }, { t: '우산 아래서', a: '하늘 트리오' }, { t: '창가의 오후', a: '달빛 밴드' }],
-          ratings: { x1: 5, x2: 4, x3: 4 } },
-        { id: 'sample-2', owner: 'sample-b', maker: '바람이', name: '운동할 때 듣는 노래',
-          songs: [{ t: '한 바퀴 더', a: '번개 크루' }, { t: '숨이 차도', a: '번개 크루' }, { t: '결승선', a: '파도 합창단' }],
-          ratings: { x1: 4, x2: 5 } },
-      ],
-    };
-  }
-
-  function load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        if (d && d.myId && Array.isArray(d.playlists)) return d;
-      }
-    } catch (e) {
-      ok = false;
-    }
-    return seed();
-  }
-
-  function save(data) {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(data));
-      ok = true;
-    } catch (e) {
-      ok = false;
-    }
-    return ok;
-  }
-
-  return { load, save, newId, isOk: () => ok };
+  let backend = null;
+  const ready = (async () => { backend = window.__fakeBackend || await loadFirebase(); })();
+  const later = name => async (...args) => { await ready; return backend[name](...args); };
+  return {
+    ready,
+    onAuth: later('onAuth'), signIn: later('signIn'), signOut: later('signOut'),
+    getProfile: later('getProfile'), createProfile: later('createProfile'),
+    onPlaylists: later('onPlaylists'),
+    newId: () => backend.newId(),
+    setPlaylist: later('setPlaylist'), updatePlaylist: later('updatePlaylist'), deletePlaylist: later('deletePlaylist'),
+    rate: later('rate'), importMany: later('importMany'),
+    // 이 기기에 남아 있는 예전 기록 중 내가 만든 것
+    readLocalMine() {
+      try {
+        const d = JSON.parse(localStorage.getItem(LOCAL_KEY));
+        if (!d || !Array.isArray(d.playlists)) return [];
+        return d.playlists.filter(p => p.owner === d.myId)
+          .map(p => ({ name: p.name, songs: Array.isArray(p.songs) ? p.songs : [], myRating: (p.ratings || {})[d.myId] || null }));
+      } catch (e) { return []; }
+    },
+    clearLocal() { try { localStorage.removeItem(LOCAL_KEY); } catch (e) {} },
+  };
 })();
 
 /* ---------- 나머지는 화면 ---------- */
-const data = Store.load();
 const $ = id => document.getElementById(id);
-const cardState = new Map();
+const data = { playlists: [] };
+// me.status: loading(확인 중) · out(로그아웃) · checking(별명 확인 중) · in(로그인)
+const me = { status: 'loading', uid: null, nick: null, profileFailed: false };
+const load = { done: false, failed: false };
+const cardState = new Map(); // 카드마다 '지울까요?' 같은 임시 상태
 
 /* ---------- 재생 (소리 파일 대신, 곡 이름으로 짧은 멜로디를 만들어 들려줘요) ---------- */
 const Player = (() => {
@@ -463,6 +507,14 @@ const Player = (() => {
       syncAll();
     },
     stopIf(id) { if (s && s.plId === id) stop(); },
+    // 다른 기기에서 목록이 바뀌어 들어왔을 때 듣던 차례를 맞춰요
+    refresh() {
+      if (!s) return;
+      const n = songsOf(s.plId).length;
+      if (!n || s.index >= n) return stop();
+      s.order = s.order.filter(i => i < n);
+      for (let i = 0; i < n; i++) if (!s.order.includes(i)) s.order.push(i);
+    },
     // 곡이 from 칸에서 to 칸으로 옮겨졌을 때, 듣던 곡을 그대로 따라가요 (다시 시작하지 않아요)
     moved(id, from, to) {
       if (!s || s.plId !== id) return;
@@ -541,7 +593,7 @@ function syncAll() {
     }
     card.querySelectorAll('li.song').forEach((li, i) => li.classList.toggle('now', isNow(pl, i)));
   }
-} // 카드마다 '지울까요?' 같은 임시 상태
+}
 
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
@@ -558,14 +610,142 @@ function h(tag, props, ...kids) {
   return el;
 }
 
-function persist() {
-  const saved = Store.save(data);
+/* ---------- 알림(오류 글) ---------- */
+function explain(err) {
+  const code = (err && err.code) || '';
+  const table = {
+    'permission-denied': '권한이 없어요. 로그인했는지, 내가 만든 것인지 확인해 주세요. (보안 규칙이 아직 적용되지 않았을 수도 있어요)',
+    'unavailable': '서버에 연결하지 못했어요. 인터넷을 확인하고 잠시 뒤 다시 해 보세요.',
+    'unauthenticated': '로그인이 풀렸어요. 다시 로그인해 주세요.',
+    'resource-exhausted': '오늘 쓸 수 있는 양을 넘었어요. 잠시 뒤 다시 해 보세요.',
+    'auth/popup-closed-by-user': '로그인 창을 닫았어요. 다시 눌러 로그인해 주세요.',
+    'auth/cancelled-popup-request': '로그인 창이 이미 열려 있어요. 열린 창에서 이어서 해 주세요.',
+    'auth/popup-blocked': '브라우저가 로그인 창(팝업)을 막았어요. 팝업을 허용한 뒤 다시 눌러 주세요.',
+    'auth/unauthorized-domain': '이 사이트 주소가 Firebase 의 "승인된 도메인"에 없어요. Firebase 콘솔 → Authentication → 설정 → 승인된 도메인에 이 주소를 넣어 주세요.',
+    'auth/operation-not-allowed': 'Firebase 콘솔에서 Google 로그인이 아직 켜져 있지 않아요.',
+    'auth/network-request-failed': '인터넷에 연결하지 못했어요. 연결을 확인해 주세요.',
+  };
+  const msg = table[code] || (err && err.message) || String(err || '알 수 없는 오류');
+  return code && !table[code] ? `${msg} (${code})` : msg;
+}
+function showNotice(text, kind) {
   const n = $('notice');
-  n.hidden = saved;
-  n.textContent = saved ? '' : '이 브라우저가 저장을 막아서, 지금 화면에서만 보이고 닫으면 사라져요.';
+  n.className = kind;
+  $('notice-text').textContent = text;
+  n.hidden = false;
+}
+const showError = (prefix, err) => showNotice(`${prefix}: ${explain(err)}`, 'error');
+const showInfo = text => showNotice(text, 'info');
+const clearNotice = () => { $('notice').hidden = true; };
+// 저장 요청을 보내고, 실패하면 오류 글을 보여 줘요 (실패하면 화면도 저장된 모습으로 돌아와요)
+const write = (promise, prefix) => promise.catch(e => showError(prefix, e));
+
+const isMine = pl => !!me.uid && pl.ownerUid === me.uid;
+
+/* ---------- 로그인 ---------- */
+function renderAuth() {
+  const slot = $('login-slot');
+  if (me.status === 'loading' || me.status === 'checking') {
+    slot.replaceChildren(h('span', { class: 'login-state' }, '로그인 확인 중…'));
+  } else if (me.status === 'out') {
+    slot.replaceChildren(h('button', { type: 'button', id: 'login-btn', class: 'login-btn', onclick: login }, 'Google 로 로그인'));
+  } else {
+    slot.replaceChildren(
+      h('span', { id: 'my-nick', class: 'login-state' }, me.nick ? [h('strong', null, me.nick), ' 님'] : me.profileFailed ? '별명을 불러오지 못했어요' : '별명을 정해 주세요'),
+      h('button', { type: 'button', id: 'logout-btn', class: 'plain small', onclick: logout }, '로그아웃'));
+  }
+  $('nick-panel').hidden = !(me.status === 'in' && !me.nick && !me.profileFailed);
+  const sub = $('add-sub');
+  sub.classList.remove('warn');
+  sub.textContent = me.status === 'out' ? '로그인하면 만들 수 있어요' : me.status === 'in' && !me.nick ? '별명을 먼저 정해 주세요' : '';
+  if (me.status !== 'in' || !me.nick) openCreate(false);
+  renderAll();
 }
 
-const isMine = pl => pl.owner === data.myId;
+async function login() {
+  clearNotice();
+  const btn = $('login-btn');
+  if (btn) btn.disabled = true;
+  try { await Store.signIn(); } catch (e) { showError('로그인하지 못했어요', e); }
+  const again = $('login-btn');
+  if (again) again.disabled = false;
+}
+
+async function logout() {
+  try { await Store.signOut(); } catch (e) { showError('로그아웃하지 못했어요', e); }
+}
+
+let authToken = 0;
+async function onAuth(user) {
+  const token = ++authToken;
+  if (!user) {
+    Object.assign(me, { status: 'out', uid: null, nick: null, profileFailed: false });
+    renderAuth();
+    return;
+  }
+  Object.assign(me, { status: 'checking', uid: user.uid, nick: null, profileFailed: false });
+  renderAuth();
+  try {
+    const profile = await Store.getProfile(user.uid);
+    if (token !== authToken) return;
+    me.nick = profile ? profile.nick : null;
+  } catch (e) {
+    if (token !== authToken) return;
+    me.profileFailed = true;
+    showError('별명을 불러오지 못했어요', e);
+  }
+  me.status = 'in';
+  renderAuth();
+  if (me.nick) migrateLocal();
+}
+
+// 별명은 처음 로그인했을 때 한 번 정해요 (저장하는 것: 별명과 만든 때뿐)
+$('nick-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const nick = clean($('nick-input').value);
+  const msg = $('nick-msg');
+  if (!nick) { msg.textContent = '별명을 적어 주세요.'; return; }
+  const uid = me.uid;
+  msg.textContent = '';
+  try {
+    await Store.createProfile(uid, nick);
+    if (uid !== me.uid) return;
+    me.nick = nick;
+    $('nick-input').value = '';
+    renderAuth();
+    migrateLocal();
+  } catch (err) {
+    msg.textContent = '별명을 저장하지 못했어요: ' + explain(err);
+  }
+});
+
+// 이 기기에 저장하던 예전 기록(내가 만든 것)을 내 계정으로 한 번 옮겨요
+let migrating = false;
+async function migrateLocal() {
+  if (migrating || !me.uid || !me.nick) return;
+  const mine = Store.readLocalMine();
+  if (!mine.length) return;
+  migrating = true;
+  const now = Date.now();
+  const text = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const list = mine.map((p, i) => ({
+    id: Store.newId(),
+    doc: {
+      ownerUid: me.uid, ownerNick: me.nick, name: text(p.name, 40) || '이름 없음',
+      songs: p.songs.slice(0, 50).map(x => ({ t: text(x.t, 60), a: text(x.a, 40) })).filter(x => x.t && x.a),
+      ratings: p.myRating >= 1 && p.myRating <= 5 ? { [me.uid]: p.myRating } : {},
+      createdAt: now - i, // 이 기기에서 위에 있던 것이 그대로 위에 오게
+    },
+  }));
+  try {
+    await Store.importMany(list);
+    Store.clearLocal();
+    showInfo(`이 기기에 저장돼 있던 플레이리스트 ${list.length}개를 내 계정으로 옮겼어요.`);
+  } catch (e) {
+    showError('이 기기에 있던 기록을 옮기지 못했어요 (다음에 로그인할 때 다시 해 봐요)', e);
+  }
+  migrating = false;
+}
 
 function average(pl) {
   const v = Object.values(pl.ratings || {});
@@ -576,7 +756,7 @@ function renderCard(pl) {
   const mine = isMine(pl);
   const st = cardState.get(pl.id) || {};
   const avg = average(pl);
-  const myRate = (pl.ratings || {})[data.myId] || 0;
+  const myRate = me.uid ? (pl.ratings || {})[me.uid] || 0 : 0;
 
   const stars = h('div', { class: 'stars', role: 'group', 'aria-label': '별점 주기' },
     [1, 2, 3, 4, 5].map(n => h('button', {
@@ -620,9 +800,10 @@ function renderCard(pl) {
   return h('article', { class: 'card', 'data-id': pl.id, 'data-mine': mine ? 'true' : 'false' },
     h('span', { class: 'badge' + (mine ? '' : ' view') }, mine ? '내가 만든 것' : '보기만 해요'),
     h('h2', null, pl.name),
-    h('p', { class: 'maker' }, '만든 사람: ', h('strong', null, pl.maker)),
+    h('p', { class: 'maker' }, '만든 사람: ', h('strong', null, pl.ownerNick)),
     h('div', { class: 'rating' }, h('span', { class: 'rate-label' }, '별점 주기 (눌러 보세요)'), stars,
-      h('span', { class: 'avg' }, avg ? `${avg.avg.toFixed(1)}점 (${avg.count}명)` : '아직 별점이 없어요')),
+      h('span', { class: 'avg' }, avg ? `${avg.avg.toFixed(1)}점 (${avg.count}명)` : '아직 별점이 없어요'),
+      st.rateMsg ? h('p', { class: 'msg', role: 'alert' }, st.rateMsg) : null),
     songs,
     mine && pl.songs.length > 1 ? h('p', { class: 'hint' }, '≡ 를 끌어서 곡 순서를 바꿔요. (키보드: ≡ 에서 위·아래 화살표)') : null,
     pl.songs.length ? renderPlayer(pl) : null,
@@ -641,19 +822,37 @@ function visibleList() {
   return list;
 }
 
+// 카드가 바뀌었는지 알아보는 표 (바뀐 카드만 다시 그려서, 적던 글자가 다른 기기의 변화에 지워지지 않게)
+const sigOf = pl => JSON.stringify([pl, me.uid]);
+
 function renderAll() {
-  const list = visibleList();
+  const vis = visibleList();
   const total = data.playlists.length;
-  $('list').replaceChildren(...list.map(renderCard));
-  $('empty').hidden = total > 0;
-  $('no-match').hidden = !(total > 0 && list.length === 0);
-  $('count').textContent = total ? `전체 ${total}개 중 ${list.length}개 보여요` : '';
+  const listEl = $('list');
+  const old = new Map([...listEl.children].map(el => [el.dataset.id, el]));
+  const wanted = vis.map(pl => {
+    const sig = sigOf(pl), el = old.get(pl.id);
+    if (el && el.dataset.sig === sig) return el;
+    const fresh = renderCard(pl);
+    fresh.dataset.sig = sig;
+    return fresh;
+  });
+  wanted.forEach((el, i) => { if (listEl.children[i] !== el) listEl.insertBefore(el, listEl.children[i] || null); });
+  while (listEl.children.length > wanted.length) listEl.lastElementChild.remove();
+  $('loading').hidden = load.done || load.failed;
+  $('empty').hidden = !(load.done && total === 0);
+  $('no-match').hidden = !(total > 0 && vis.length === 0);
+  $('count').textContent = total ? `전체 ${total}개 중 ${vis.length}개 보여요` : '';
 }
 
 function refreshCard(id) {
   const pl = data.playlists.find(p => p.id === id);
   const old = $('list').querySelector(`[data-id="${CSS.escape(id)}"]`);
-  if (pl && old) old.replaceWith(renderCard(pl));
+  if (pl && old) {
+    const fresh = renderCard(pl);
+    fresh.dataset.sig = sigOf(pl);
+    old.replaceWith(fresh);
+  }
 }
 
 function setState(id, patch) {
@@ -664,14 +863,16 @@ function setState(id, patch) {
 /* ---------- 동작 ---------- */
 function clean(s) { return String(s).trim().replace(/\s+/g, ' '); }
 
-function create(name, nick) {
-  name = clean(name); nick = clean(nick);
+function create(name) {
+  name = clean(name);
+  if (me.status !== 'in' || !me.uid) return '로그인하면 만들 수 있어요.';
+  if (!me.nick) return '별명을 먼저 정해 주세요.';
   if (!name) return '플레이리스트 이름을 적어 주세요.';
-  if (!nick) return '만든 사람 별명을 적어 주세요.';
-  data.nick = nick;
   openSearch(false); // 찾기에 걸려 새 것이 안 보이는 일이 없게 (찾기 줄을 닫고 비움)
-  data.playlists.unshift({ id: Store.newId(), owner: data.myId, maker: nick, name, songs: [], ratings: {} });
-  persist();
+  const id = Store.newId();
+  const doc = { ownerUid: me.uid, ownerNick: me.nick, name, songs: [], ratings: {}, createdAt: Date.now() };
+  data.playlists.unshift({ id, ...doc });
+  write(Store.setPlaylist(id, doc), '플레이리스트를 저장하지 못했어요');
   renderAll();
   return '';
 }
@@ -684,7 +885,7 @@ function addSong(id, form) {
   if (pl.songs.length >= 50) return setState(id, { songMsg: '곡은 50개까지 넣을 수 있어요.' });
   pl.songs.push({ t, a });
   Player.added(id);
-  persist();
+  write(Store.updatePlaylist(id, { songs: pl.songs }), '곡을 저장하지 못했어요');
   setState(id, { songMsg: '' });
 }
 
@@ -693,7 +894,7 @@ function removeSong(id, index) {
   if (!pl || !isMine(pl)) return;
   Player.stopIf(id);
   pl.songs.splice(index, 1);
-  persist();
+  write(Store.updatePlaylist(id, { songs: pl.songs }), '곡을 저장하지 못했어요');
   refreshCard(id);
 }
 
@@ -704,7 +905,7 @@ function moveSong(id, from, to, focusHandle) {
   if (from === to || to < 0 || to >= pl.songs.length) return;
   pl.songs.splice(to, 0, pl.songs.splice(from, 1)[0]);
   Player.moved(id, from, to);
-  persist();
+  write(Store.updatePlaylist(id, { songs: pl.songs }), '곡 순서를 저장하지 못했어요');
   refreshCard(id);
   if (focusHandle) {
     const el = document.querySelectorAll(`.card[data-id="${CSS.escape(id)}"] li.song`)[to];
@@ -769,7 +970,7 @@ function rename(id, form) {
   const name = clean(form.name.value);
   if (!name) return setState(id, { nameMsg: '이름을 비워 둘 수 없어요.' });
   pl.name = name;
-  persist();
+  write(Store.updatePlaylist(id, { name }), '이름을 저장하지 못했어요');
   setState(id, { nameMsg: '' });
 }
 
@@ -779,19 +980,21 @@ function removePlaylist(id) {
   Player.stopIf(id);
   data.playlists = data.playlists.filter(p => p.id !== id);
   cardState.delete(id);
-  persist();
+  write(Store.deletePlaylist(id), '플레이리스트를 지우지 못했어요');
   renderAll();
 }
 
-// 별점은 누구나 줄 수 있어요 (내 별점은 내 표시로 하나만 남아요). 같은 별을 다시 누르면 취소.
+// 별점은 로그인한 누구나 줄 수 있어요 (내 별점은 내 고유 번호로 하나만 남아요). 같은 별을 다시 누르면 취소.
 function rate(id, n) {
   const pl = data.playlists.find(p => p.id === id);
   if (!pl) return;
+  if (!me.uid) return setState(id, { rateMsg: '로그인하면 별점을 줄 수 있어요.' });
   pl.ratings = pl.ratings || {};
-  if (pl.ratings[data.myId] === n) delete pl.ratings[data.myId];
-  else pl.ratings[data.myId] = n;
-  persist();
-  refreshCard(id);
+  const cancel = pl.ratings[me.uid] === n;
+  if (cancel) delete pl.ratings[me.uid];
+  else pl.ratings[me.uid] = n;
+  write(Store.rate(id, me.uid, cancel ? null : n), '별점을 저장하지 못했어요');
+  setState(id, { rateMsg: '' });
 }
 
 // + 칸을 누르면 칸이 입력칸으로 바뀌고, 만들거나 취소하면 다시 + 로 돌아와요
@@ -808,12 +1011,17 @@ function openCreate(open) {
   }
 }
 
-$('add-open').addEventListener('click', () => openCreate(true));
+$('add-open').addEventListener('click', () => {
+  const warn = text => { const sub = $('add-sub'); sub.textContent = text; sub.classList.add('warn'); };
+  if (me.status !== 'in') return warn('로그인하면 만들 수 있어요. 위쪽의 "Google 로 로그인"을 눌러 주세요.');
+  if (!me.nick) return warn('별명을 먼저 정해 주세요.');
+  openCreate(true);
+});
 $('add-cancel').addEventListener('click', () => { openCreate(false); $('add-open').focus(); });
 $('create-form').addEventListener('keydown', e => { if (e.key === 'Escape') { openCreate(false); $('add-open').focus(); } });
 $('create-form').addEventListener('submit', e => {
   e.preventDefault();
-  const msg = create($('new-name').value, $('new-nick').value);
+  const msg = create($('new-name').value);
   $('create-msg').textContent = msg;
   if (!msg) openCreate(false);
 });
@@ -832,10 +1040,29 @@ $('search').addEventListener('input', renderAll);
 $('sort').addEventListener('change', renderAll);
 $('filter-form').addEventListener('submit', e => e.preventDefault());
 
-$('new-nick').value = data.nick || '';
-renderAll();
-// 저장이 막혀 있는지 처음부터 알려 줘요 (읽을 때 막혔다면 여기서 보여요)
-if (!Store.isOk()) persist();
+$('notice-close').addEventListener('click', clearNotice);
+
+/* ---------- 시작 ---------- */
+renderAuth();
+Store.ready.then(() => {
+  // 플레이리스트는 실시간으로 받아요 (다른 기기에서 바꾼 것도 바로 보여요)
+  Store.onPlaylists(list => {
+    data.playlists = list;
+    load.done = true; load.failed = false;
+    Player.refresh();
+    renderAll();
+  }, err => {
+    load.failed = true;
+    renderAll();
+    showError('플레이리스트를 불러오지 못했어요', err);
+  });
+  Store.onAuth(onAuth).catch(err => showError('로그인 상태를 확인하지 못했어요', err));
+}).catch(err => {
+  load.failed = true;
+  Object.assign(me, { status: 'out', uid: null, nick: null });
+  renderAuth();
+  showError('Firebase 를 불러오지 못했어요 (인터넷을 확인해 주세요)', err);
+});
 </script>
 </body>
 </html>

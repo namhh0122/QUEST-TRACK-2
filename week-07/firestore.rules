@@ -1,0 +1,91 @@
+rules_version = '2';
+
+// week-07 플레이리스트 사이트의 Firestore 보안 규칙
+// Firebase 콘솔 → Firestore Database → 규칙 에 이 내용을 붙여 넣고 "게시"를 눌러요.
+//
+// 기본 약속
+//   읽기   : 플레이리스트는 누구나 (로그인 없이도). 별명 기록(profiles)은 나만.
+//   쓰기   : 로그인한 사람만.
+//   지우기 : 내가 만든 것만.
+//
+// 저장하는 것
+//   playlists/{id} : ownerUid(만든 사람의 고유 번호), ownerNick(별명), name, songs[], ratings{uid: 1~5}, createdAt
+//   profiles/{uid} : nick(별명), createdAt   ← Google 이름·메일은 저장하지 않아요
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // ---------- 별명 (나만 읽고, 나만 한 번 만들 수 있어요. 고치거나 지울 수 없어요) ----------
+    match /profiles/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['nick', 'createdAt'])
+        && request.resource.data.keys().hasAll(['nick', 'createdAt'])
+        && request.resource.data.nick is string
+        && request.resource.data.nick.size() >= 1
+        && request.resource.data.nick.size() <= 20
+        && request.resource.data.createdAt is number;
+      allow update, delete: if false;
+    }
+
+    // ---------- 플레이리스트 ----------
+    match /playlists/{id} {
+
+      // 문서 모양: 정해진 칸만, 정해진 길이로
+      function validShape(d) {
+        return d.keys().hasOnly(['ownerUid', 'ownerNick', 'name', 'songs', 'ratings', 'createdAt'])
+          && d.keys().hasAll(['ownerUid', 'ownerNick', 'name', 'songs', 'ratings', 'createdAt'])
+          && d.ownerUid is string
+          && d.ownerNick is string && d.ownerNick.size() >= 1 && d.ownerNick.size() <= 20
+          && d.name is string && d.name.size() >= 1 && d.name.size() <= 40
+          && d.songs is list && d.songs.size() <= 50
+          && d.ratings is map
+          && d.createdAt is number;
+      }
+
+      function validRating(r) {
+        return r is number && r >= 1 && r <= 5;
+      }
+
+      // 새로 만들기: 만든 사람은 반드시 나 (별점은 비어 있거나, 내 별점 하나만)
+      function validNew(d) {
+        return validShape(d)
+          && d.ownerUid == request.auth.uid
+          && (d.ratings.size() == 0
+              || (d.ratings.keys().hasOnly([request.auth.uid]) && validRating(d.ratings[request.auth.uid])));
+      }
+
+      // 내가 만든 것을 고치기: 이름과 곡만 바꿀 수 있어요 (만든 사람·별명·만든 때·남들의 별점은 그대로)
+      function ownerEdit() {
+        return resource.data.ownerUid == request.auth.uid
+          && validShape(request.resource.data)
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.ownerNick == resource.data.ownerNick
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.ratings == resource.data.ratings;
+      }
+
+      // 별점 주기: 누가 만든 것이든, 별점 칸 안의 "내 칸"만 바꿀 수 있어요 (지우기 = 별점 취소)
+      function ratingOnly() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings'])
+          && request.resource.data.ratings.diff(resource.data.ratings).affectedKeys().hasOnly([request.auth.uid])
+          && (!(request.auth.uid in request.resource.data.ratings)
+              || validRating(request.resource.data.ratings[request.auth.uid]));
+      }
+
+      allow read: if true;
+      allow create: if signedIn() && validNew(request.resource.data);
+      allow update: if signedIn() && (ownerEdit() || ratingOnly());
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // 그 밖의 모든 곳은 닫아 둬요
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
