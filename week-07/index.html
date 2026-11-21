@@ -7,20 +7,22 @@
 <style>
   /* 색: 초록이 중심. 글자는 진한 초록빛 검정, 바탕은 아주 옅은 초록빛 흰색 */
   :root {
-    color-scheme: light;
-    --green: #1e7a46;
-    --green-dark: #14532d;
-    --green-soft: #e3f2e8;
-    --green-faint: #eef5ef;
-    --bg: #f3f7f4;
-    --card: #ffffff;
-    --line: #d3e0d7;
-    --line-strong: #b4c7ba;
-    --text: #1b2a21;
-    --muted: #4c6054;
-    --danger: #b3261e;
-    --star: #d08c00;
-    --star-off: #c3cec6;
+    color-scheme: dark;
+    --accent: #2be071;      /* 중심 초록: 아주 선명하게 */
+    --accent-dim: #7ee8a6;
+    --on-accent: #03140a;   /* 초록 위에 올리는 글자색 (검정에 가까움) */
+    --bg: #000000;
+    --card: #0c120e;
+    --field: #060a07;
+    --line: #1f3a29;
+    --line-strong: #3a6a4a;
+    --text: #eef8f1;
+    --muted: #a3bba9;
+    --danger: #ff7b7b;
+    --star: #ffc83d;
+    --star-off: #2f4437;
+    --green-soft: #0f2c1a;
+    --green-faint: #08150d;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -43,9 +45,9 @@
     justify-content: space-between;
     gap: 12px;
     padding-bottom: 14px;
-    border-bottom: 2px solid var(--green);
+    border-bottom: 2px solid var(--accent);
   }
-  h1 { margin: 0; font-size: clamp(19px, 5vw, 22px); font-weight: 700; color: var(--green); }
+  h1 { margin: 0; font-size: clamp(19px, 5vw, 22px); font-weight: 700; color: var(--accent); }
   .sub { margin: 2px 0 0; font-size: 15px; color: var(--muted); }
   #login-slot {
     min-width: 110px;
@@ -60,9 +62,9 @@
     margin: 12px 0 0;
     padding: 10px 14px;
     border-radius: 10px;
-    background: #fff4e0;
-    border: 1px solid #e0b36a;
-    color: #5c3b00;
+    background: #2a2008;
+    border: 1px solid #7a5a12;
+    color: #ffd78a;
     overflow-wrap: anywhere;
   }
   #notice[hidden] { display: none; }
@@ -75,7 +77,7 @@
     background: var(--card);
     border: 1px solid var(--line);
   }
-  .panel h2 { margin-bottom: 10px; font-size: 17px; font-weight: 600; color: var(--green-dark); }
+  .panel h2 { margin-bottom: 10px; font-size: 17px; font-weight: 600; color: var(--accent); }
 
   /* 입력 */
   form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
@@ -86,27 +88,27 @@
     padding: 8px 12px;
     border-radius: 10px;
     border: 1px solid var(--line-strong);
-    background: #fff;
+    background: var(--field);
     color: var(--text);
     font-size: 16px;
     font-weight: 400;
   }
-  input[type=text]::placeholder { color: #6f8277; }
-  input[type=text]:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }
+  input[type=text]::placeholder { color: #7f9a88; }
+  input[type=text]:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   button {
     min-height: 46px;
     padding: 8px 18px;
-    border: 1px solid var(--green);
+    border: 1px solid var(--accent);
     border-radius: 10px;
-    background: var(--green);
-    color: #fff;
+    background: var(--accent);
+    color: var(--on-accent);
     font-size: 16px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
   }
   button.plain { background: var(--green-faint); border-color: var(--line-strong); color: var(--text); font-weight: 500; }
-  button.danger { background: #fff; border-color: #e3b5b1; color: var(--danger); }
-  button.danger.confirm-delete { background: var(--danger); border-color: var(--danger); color: #fff; }
+  button.danger { background: transparent; border-color: #7a3438; color: var(--danger); }
+  button.danger.confirm-delete { background: #d92d33; border-color: #d92d33; color: #fff; }
   .msg { flex-basis: 100%; margin: 0; font-size: 14px; color: var(--danger); }
   .msg:empty { display: none; }
 
@@ -134,23 +136,22 @@
     border-radius: 14px;
     background: var(--card);
     border: 1px solid var(--line);
-    box-shadow: 0 1px 3px rgba(20, 83, 45, 0.08);
   }
-  .card[data-mine="true"] { border-color: var(--green); box-shadow: 0 0 0 1px var(--green), 0 1px 3px rgba(20, 83, 45, 0.12); }
+  .card[data-mine="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 22px rgba(43, 224, 113, 0.22); }
   .badge {
     align-self: flex-start;
     padding: 2px 10px;
     border-radius: 999px;
     background: var(--green-soft);
-    border: 1px solid #a9d3b8;
-    color: var(--green-dark);
+    border: 1px solid var(--line-strong);
+    color: var(--accent);
     font-size: 13px;
     font-weight: 600;
   }
-  .badge.view { background: #eef1ee; border-color: var(--line); color: var(--muted); font-weight: 500; }
+  .badge.view { background: #121a15; border-color: var(--line); color: var(--muted); font-weight: 500; }
 
   /* 플레이리스트 제목: 화면에서 가장 큰 글자 */
-  .card h2 { font-size: clamp(24px, 6.8vw, 30px); font-weight: 800; line-height: 1.25; color: var(--text); letter-spacing: -0.01em; }
+  .card h2 { font-size: clamp(24px, 6.8vw, 30px); font-weight: 800; line-height: 1.25; color: #ffffff; letter-spacing: -0.01em; }
   .maker { margin: -4px 0 0; font-size: 15px; color: var(--muted); overflow-wrap: anywhere; }
 
   .rating { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
@@ -171,9 +172,9 @@
   ol.songs { margin: 0; padding-left: 26px; }
   ol.songs li { position: relative; padding: 5px 0; overflow-wrap: anywhere; transition: transform 0.12s; }
   ol.songs li::marker { color: var(--muted); }
-  ol.songs li.dragging { transition: none; z-index: 2; background: var(--green-soft); border-radius: 8px; box-shadow: 0 4px 14px rgba(20, 83, 45, 0.25); }
-  ol.songs li.now { color: var(--green-dark); font-weight: 700; }
-  ol.songs li.now .artist { color: var(--green); }
+  ol.songs li.dragging { transition: none; z-index: 2; background: var(--green-soft); border-radius: 8px; box-shadow: 0 0 0 1px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.7); }
+  ol.songs li.now { color: var(--accent); font-weight: 700; }
+  ol.songs li.now .artist { color: var(--accent-dim); }
   .songs .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .songs .row span { min-width: 0; }
   .songs .row > span { flex: 1; }
@@ -187,9 +188,9 @@
   /* 재생 줄 */
   .player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; background: var(--green-faint); border: 1px solid var(--line); }
   .player button { flex: none; }
-  .player button.toggle[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+  .player button.toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
   .player button:disabled { opacity: 0.45; cursor: default; }
-  .now-text { flex: 1 1 100%; min-width: 0; font-size: 15px; color: var(--green-dark); overflow-wrap: anywhere; word-break: keep-all; }
+  .now-text { flex: 1 1 100%; min-width: 0; font-size: 15px; color: var(--accent); overflow-wrap: anywhere; word-break: keep-all; }
 
   /* 내 것을 고치는 도구 */
   .tools { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
