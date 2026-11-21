@@ -11,6 +11,7 @@
 //   4-2. 재생      : 재생·멈춤·이어 듣기·다음 곡·이전 곡, 저절로 다음 곡, 목록을 바꾸면 앞 목록이 멈추는지
 //   4-3. 찾기·정렬  : 이름으로 찾기(띄어쓰기 무시), 없는 이름 안내, 별점 높은 순, 둘을 같이 쓰기
 //   4-4. 곡 순서    : 끌어서 옮기기(마우스·터치), 키보드 화살표, 남의 목록엔 손잡이 없음, 듣는 중에 옮겨도 따라가는지
+//   4-5. 섞기·반복  : 한 곡 반복(끝나도 같은 곡), 섞어 듣기(모든 곡이 한 번씩), 옮기고 곡을 넣어도 차례가 맞는지
 //   5. 저장이 막힐 때  : 브라우저가 저장을 막아도 멈추지 않고 안내하는지
 //   6. 화면 크기      : 폰·태블릿·컴퓨터 폭에서 옆으로 잘리거나 넘치는 것이 있는지 (긴 글자 포함), 사진 찍기
 //
@@ -41,6 +42,8 @@ function hookScript(mode) {
   addEventListener('error', e => { if (!e.target || e.target === window) R.errors.push(e.message); }, true);
   addEventListener('unhandledrejection', e => R.errors.push(String(e.reason && e.reason.message || e.reason)));
   const mode = ${JSON.stringify(mode)};
+  // 끌기·섞기 시험은 같은 결과가 나오도록 Math.random 을 정해진 수열로 바꿔요
+  if (mode === 'drag') Math.random = (() => { const seq = [0.1, 0.9, 0.5, 0.3, 0.7, 0.2]; let i = 0; return () => seq[i++ % seq.length]; })();
   if (mode === 'blocked') {
     Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('막힘', 'SecurityError'); } });
     return;
@@ -92,6 +95,8 @@ const REPORT_JS = `(() => {
     addForm: $$('form.add-song', c).length, renameForm: $$('form.rename', c).length,
     deleteBtn: $$('button.delete', c).length, note: $$('.no-edit-note', c).length,
     confirm: $$('.confirm-delete', c).length, badge: c.querySelector('.badge').innerText,
+    shuffle: c.querySelector('[data-role=shuffle]') ? c.querySelector('[data-role=shuffle]').getAttribute('aria-pressed') : null,
+    repeat: c.querySelector('[data-role=repeat]') ? c.querySelector('[data-role=repeat]').getAttribute('aria-pressed') : null,
     players: $$('.player', c).length, handles: $$('.handle', c).length,
     playLabel: (c.querySelector('[data-role=play]') || {}).innerText || null,
     prevOff: c.querySelector('[data-role=prev]') ? c.querySelector('[data-role=prev]').disabled : null,
@@ -473,6 +478,82 @@ async function main() {
         check(rr.scrollWidth <= rr.width, '[곡 순서] 폰 폭에서 손잡이를 넣어도 옆으로 넘치지 않음', `[곡 순서] 폰에서 넘침 ${rr.outside.join(', ')}`);
       } finally {
         await pt.close();
+      }
+    }
+
+    // 8번 기능: 섞어 듣기와 한 곡 반복
+    {
+      const ft = await openApp(cdp, pageUrl, 'drag', SIZES[3]);
+      try {
+        const clk = (id, role) => act(ft, `document.querySelector('.card[data-id="${id}"] [data-role="${role}"]').click()`);
+        const card = async () => (await report(ft)).cards.find(cd => cd.id === 'drag-1');
+        const song = cd => (cd.nowSongs[0] || '').split(' · ')[0].replace(/^\\d+\\.\\s*/, '');
+        let cd = await card();
+        let rr = await report(ft); collect(rr);
+        check(rr.cards.every(x => x.shuffle === 'false' && x.repeat === 'false'), '[섞기·반복] 곡이 있는 목록마다 "섞어 듣기"와 "한 곡 반복" 단추가 있고, 처음엔 꺼져 있음', `[섞기·반복] 단추가 없거나 처음부터 켜져 있음: ${JSON.stringify(rr.cards.map(x => [x.shuffle, x.repeat]))}`);
+
+        // 한 곡 반복
+        await clk('drag-1', 'play');
+        await clk('drag-1', 'repeat');
+        cd = await card();
+        check(cd.repeat === 'true' && cd.nowText.includes('한 곡 반복') && cd.nowText.startsWith('재생 중: 가곡'), `[한 곡 반복] 켜면 단추가 켜진 모양이 되고 안내에 표시됨: "${cd.nowText}"`, `[한 곡 반복] 켰는데 이상함: ${JSON.stringify(cd.nowText)}`);
+        await wait(4700);
+        cd = await card();
+        check(cd.nowText.startsWith('재생 중: 가곡') && cd.nowText.includes('(1/4)'), '[한 곡 반복] 곡이 끝나도(약 4초 뒤) 다음 곡으로 안 넘어가고 같은 곡이 다시 나옴', `[한 곡 반복] 반복이 안 됨: ${JSON.stringify(cd.nowText)}`);
+        await clk('drag-1', 'repeat');
+        await wait(4700);
+        cd = await card();
+        check(cd.repeat === 'false' && cd.nowText.startsWith('재생 중: 나곡') && !cd.nowText.includes('한 곡 반복'), '[한 곡 반복] 끄면 곡이 끝났을 때 다시 다음 곡(나곡)으로 넘어감', `[한 곡 반복] 끈 뒤가 이상함: ${JSON.stringify(cd.nowText)}`);
+        await clk('drag-1', 'repeat'); await clk('drag-1', 'next');
+        cd = await card();
+        check(cd.nowText.startsWith('재생 중: 다곡'), '[한 곡 반복] 반복을 켜 둬도 "다음 곡" 단추는 다음 곡으로 감', `[한 곡 반복] 반복 중 다음 곡이 이상함: ${JSON.stringify(cd.nowText)}`);
+        await clk('drag-1', 'repeat');
+
+        // 섞어 듣기
+        const walk = async () => { // 지금 곡부터 "다음 곡"을 끝까지 눌러 가며 곡 이름을 모아요
+          const seen = [];
+          for (let k = 0; k < 10; k++) {
+            const x = await card();
+            seen.push((x.nowSongs[0] || '').split(' ')[0].replace(/^\\d+\\./, '') || x.nowSongs[0]);
+            if (x.nextOff) break;
+            await clk('drag-1', 'next');
+          }
+          return seen;
+        };
+        await clk('drag-1', 'shuffle');
+        cd = await card();
+        check(cd.shuffle === 'true' && cd.nowText.startsWith('재생 중: 다곡') && cd.nowText.includes('(1/4)') && cd.nowText.includes('섞어 듣기'),
+          `[섞어 듣기] 듣는 중에 켜도 듣던 곡(다곡)은 그대로 이어지고, 그 곡이 섞인 차례의 첫째(1/4)가 됨: "${cd.nowText}"`, `[섞어 듣기] 켰는데 이상함: ${JSON.stringify(cd.nowText)}`);
+        let seen = await walk();
+        const uniq = new Set(seen);
+        check(seen.length === 4 && uniq.size === 4 && seen[0].includes('다곡') && seen.some(n => n.includes('가곡') || n.includes('나곡')) && (await card()).nextOff,
+          `[섞어 듣기] "다음 곡"을 계속 누르면 모든 곡이 한 번씩만 나오고, 줄 순서로는 못 가는 앞쪽 곡도 나옴 (섞였음): ${seen.join(' → ')}`, `[섞어 듣기] 섞은 차례가 이상함: ${seen.join(' → ')}`);
+        await clk('drag-1', 'prev');
+        cd = await card();
+        check(cd.nowSongs[0] && !cd.nowSongs[0].includes((seen[3] || '#')) , '[섞어 듣기] "이전 곡"은 섞인 차례에서 바로 앞에 들은 곡으로 돌아감', `[섞어 듣기] 이전 곡이 이상함: ${JSON.stringify(cd.nowText)}`);
+        await clk('drag-1', 'shuffle');
+        cd = await card();
+        check(cd.shuffle === 'false' && !cd.nowText.includes('섞어 듣기') && cd.nowSongs.length === 1, '[섞어 듣기] 끄면 표시가 사라지고 듣던 곡은 그대로', `[섞어 듣기] 끈 뒤가 이상함: ${JSON.stringify(cd.nowText)}`);
+
+        // 섞어 듣기 + 순서 바꾸기 + 곡 넣기
+        await clk('drag-1', 'shuffle');
+        const before = song(await card());
+        await evaluate(ft, `document.querySelectorAll('.card[data-id="drag-1"] li.song')[0].querySelector('.handle').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))`);
+        await wait(150);
+        await act(ft, `(() => { const f = document.querySelector('.card[data-id="drag-1"] form.add-song'); f.elements.title.value = '마곡'; f.elements.artist.value = '밴드'; f.requestSubmit(); })()`);
+        cd = await card();
+        check(cd.shuffle === 'true' && cd.nowText.includes('재생 중') && cd.nowText.includes('/5)') && cd.nowSongs.length === 1, '[섞어 듣기] 섞어 듣는 중에 곡을 옮기고 새 곡을 넣어도 듣던 곡이 이어지고, 곡 수가 5로 늘어남', `[섞어 듣기] 옮기고 넣은 뒤가 이상함: ${JSON.stringify(cd.nowText)}`);
+        seen = await walk();
+        check(new Set(seen).size === 5 && seen.length === 5 && seen.some(n => n.includes('마곡')), `[섞어 듣기] 순서를 바꾸고 새 곡을 넣은 뒤에도 5곡이 한 번씩 모두 나오고, 새 곡(마곡)도 들어 있음: ${seen.join(' → ')}`, `[섞어 듣기] 옮긴 뒤 차례가 어긋남: ${seen.join(' → ')}`);
+
+        // 저장하지 않음
+        await ft.s('Page.reload'); await wait(800);
+        rr = await report(ft); collect(rr);
+        check(rr.cards.every(x => x.shuffle === 'false' && x.repeat === 'false'), '[섞기·반복] 새로 열면 두 단추는 꺼진 처음 상태 (저장하지 않음)', '[섞기·반복] 새로 열었는데 켜져 있음');
+        check(!rr.errors.length, '[섞기·반복] 시험하는 동안 자바스크립트 오류 없음', '[섞기·반복] 오류: ' + rr.errors.join(' / '));
+        await shoot(ft, path.join(SHOTS_DIR, `music-player-${SIZES[3].name}-${SIZES[3].w}x${SIZES[3].h}.png`), shots);
+      } finally {
+        await ft.close();
       }
     }
 

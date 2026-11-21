@@ -159,6 +159,7 @@
 
   .player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border-radius: 12px; background: #1f1b33; }
   .player button { flex: none; }
+  .player button.toggle[aria-pressed="true"] { background: #ffc83d; color: #2a2000; font-weight: 600; }
   .player button:disabled { opacity: 0.4; cursor: default; }
   .now-text { flex: 1 1 100%; min-width: 0; font-size: 14px; color: #d6cfee; overflow-wrap: anywhere; word-break: keep-all; }
   ol.songs li.now { color: #ffc83d; font-weight: 600; }
@@ -291,7 +292,23 @@ const Player = (() => {
   const NOTES = 12, NOTE_SEC = 0.35, SONG_MS = NOTES * NOTE_SEC * 1000;
   const Ctor = window.AudioContext || window.webkitAudioContext;
   let ctx = null;
-  let s = null; // 지금 상태: { plId, index, playing, remaining, startedAt, timer, nodes }
+  let s = null; // 지금 상태: { plId, index, order, playing, remaining, startedAt, timer, nodes }
+  // order: 들을 차례 (곡 번호가 줄지어 있어요). 섞어 듣기가 꺼져 있으면 0,1,2,3…, 켜져 있으면 섞인 차례예요.
+  const opts = new Map(); // 목록마다 섞어 듣기·한 곡 반복을 켰는지 (저장하지 않아요)
+  const optsOf = id => { if (!opts.has(id)) opts.set(id, { shuffle: false, repeat: false }); return opts.get(id); };
+
+  // first 곡을 맨 앞에 두고 나머지를 섞어요 (섞어 듣기가 꺼져 있으면 그냥 차례대로)
+  function makeOrder(id, first) {
+    const all = Array.from({ length: songsOf(id).length }, (_, i) => i);
+    if (!optsOf(id).shuffle) return all;
+    const rest = all.filter(i => i !== first);
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j], rest[i]];
+    }
+    return [first, ...rest];
+  }
+  const posOf = () => s.order.indexOf(s.index);
 
   function hash(str) {
     let x = 2166136261;
@@ -333,7 +350,9 @@ const Player = (() => {
 
   function ended() {
     if (!s) return;
-    if (s.index + 1 < songsOf(s.plId).length) { s.index++; startSong(); }
+    if (optsOf(s.plId).repeat) return startSong(); // 한 곡 반복: 같은 곡을 처음부터 다시
+    const pos = posOf();
+    if (pos + 1 < s.order.length) { s.index = s.order[pos + 1]; startSong(); }
     else stop(); // 마지막 곡이 끝나면 멈춰요
   }
 
@@ -347,14 +366,29 @@ const Player = (() => {
 
   return {
     supported: !!Ctor,
-    state: () => (s ? { plId: s.plId, index: s.index, playing: s.playing } : null),
+    state: () => (s ? { plId: s.plId, index: s.index, playing: s.playing, pos: posOf(), hasNext: posOf() + 1 < s.order.length } : null),
+    option: (id, key) => optsOf(id)[key],
+    // 섞어 듣기·한 곡 반복을 켜고 끄기. 듣는 중에 섞어 듣기를 바꿔도 듣던 곡은 그대로 이어져요.
+    setOption(id, key) {
+      const o = optsOf(id);
+      o[key] = !o[key];
+      if (key === 'shuffle' && s && s.plId === id) s.order = makeOrder(id, s.index);
+      syncAll();
+    },
+    // 듣는 중에 곡이 새로 들어오면 차례 맨 끝에 붙여요
+    added(id) {
+      if (!s || s.plId !== id) return;
+      for (let i = 0; i < songsOf(id).length; i++) if (!s.order.includes(i)) s.order.push(i);
+      syncAll();
+    },
     stopIf(id) { if (s && s.plId === id) stop(); },
     // 곡이 from 칸에서 to 칸으로 옮겨졌을 때, 듣던 곡을 그대로 따라가요 (다시 시작하지 않아요)
     moved(id, from, to) {
       if (!s || s.plId !== id) return;
-      if (s.index === from) s.index = to;
-      else if (from < s.index && to >= s.index) s.index--;
-      else if (from > s.index && to <= s.index) s.index++;
+      const m = i => (i === from ? to : from < i && i <= to ? i - 1 : to <= i && i < from ? i + 1 : i);
+      s.index = m(s.index);
+      // 섞어 듣기가 꺼져 있으면 차례는 늘 0,1,2,3… 이고, 켜져 있으면 섞인 차례의 곡 번호만 새 자리로 바꿔 줘요
+      s.order = optsOf(id).shuffle ? s.order.map(m) : makeOrder(id, s.index);
     },
     toggle(id) {
       if (!Ctor || !songsOf(id).length) return;
@@ -374,18 +408,19 @@ const Player = (() => {
         }
       } else { // 다른 목록(또는 처음): 첫 곡부터
         stopNodes();
-        s = { plId: id, index: 0, nodes: [] };
+        const first = optsOf(id).shuffle ? Math.floor(Math.random() * songsOf(id).length) : 0;
+        s = { plId: id, index: first, nodes: [], order: makeOrder(id, first) };
         wake();
         startSong();
       }
     },
     next(id) {
-      if (!s || s.plId !== id || s.index + 1 >= songsOf(id).length) return;
-      s.index++; wake(); startSong();
+      if (!s || s.plId !== id || posOf() + 1 >= s.order.length) return;
+      s.index = s.order[posOf() + 1]; wake(); startSong();
     },
     prev(id) { // 첫 곡에서는 그 곡을 처음부터 다시
       if (!s || s.plId !== id) return;
-      s.index = Math.max(0, s.index - 1); wake(); startSong();
+      s.index = s.order[Math.max(0, posOf() - 1)]; wake(); startSong();
     },
   };
 })();
@@ -397,12 +432,16 @@ function renderPlayer(pl) {
   const active = !!st && st.plId === pl.id && !!pl.songs[st.index];
   const cur = active ? pl.songs[st.index] : null;
   const playing = active && st.playing;
-  const text = active ? `${playing ? '재생 중' : '멈춤'}: ${cur.t} · ${cur.a} (${st.index + 1}/${pl.songs.length})`
+  const modes = [Player.option(pl.id, 'shuffle') && '섞어 듣기', Player.option(pl.id, 'repeat') && '한 곡 반복'].filter(Boolean);
+  const modeText = modes.length ? ' · ' + modes.join(' · ') : '';
+  const text = active ? `${playing ? '재생 중' : '멈춤'}: ${cur.t} · ${cur.a} (${st.pos + 1}/${pl.songs.length})${modeText}`
     : Player.supported ? '재생을 누르면 첫 곡부터 들려요' : '이 브라우저에서는 소리를 낼 수 없어요';
   return h('div', { class: 'player' },
     h('button', { type: 'button', class: 'plain prev', 'data-role': 'prev', disabled: !active, onclick: () => Player.prev(pl.id) }, '이전 곡'),
     h('button', { type: 'button', class: 'play', 'data-role': 'play', disabled: !Player.supported, onclick: () => Player.toggle(pl.id) }, playing ? '멈춤' : '재생'),
-    h('button', { type: 'button', class: 'plain next', 'data-role': 'next', disabled: !active || st.index + 1 >= pl.songs.length, onclick: () => Player.next(pl.id) }, '다음 곡'),
+    h('button', { type: 'button', class: 'plain next', 'data-role': 'next', disabled: !active || !st.hasNext, onclick: () => Player.next(pl.id) }, '다음 곡'),
+    h('button', { type: 'button', class: 'plain toggle', 'data-role': 'shuffle', 'aria-pressed': String(Player.option(pl.id, 'shuffle')), onclick: () => Player.setOption(pl.id, 'shuffle') }, '섞어 듣기'),
+    h('button', { type: 'button', class: 'plain toggle', 'data-role': 'repeat', 'aria-pressed': String(Player.option(pl.id, 'repeat')), onclick: () => Player.setOption(pl.id, 'repeat') }, '한 곡 반복'),
     h('span', { class: 'now-text', role: 'status' }, text));
 }
 
@@ -563,6 +602,7 @@ function addSong(id, form) {
   if (!t || !a) return setState(id, { songMsg: '곡 이름과 가수를 모두 적어 주세요.' });
   if (pl.songs.length >= 50) return setState(id, { songMsg: '곡은 50개까지 넣을 수 있어요.' });
   pl.songs.push({ t, a });
+  Player.added(id);
   persist();
   setState(id, { songMsg: '' });
 }
