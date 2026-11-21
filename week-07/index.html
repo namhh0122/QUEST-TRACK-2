@@ -91,8 +91,23 @@
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
     gap: 16px;
   }
-  #empty { margin-top: 16px; padding: 24px; text-align: center; color: #b9b1d1; border: 1px dashed #54497a; border-radius: 16px; }
-  #empty[hidden] { display: none; }
+  .toolbar form { align-items: flex-end; }
+  .toolbar label { flex: 1 1 200px; }
+  select {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid #54497a;
+    background: #181427;
+    color: #f3effa;
+    font: inherit;
+  }
+  select:focus-visible { outline: 3px solid #b79bff; outline-offset: 2px; }
+  #count { flex-basis: 100%; margin: 0; font-size: 13px; color: #b9b1d1; }
+  #count:empty { display: none; }
+  #empty, #no-match { margin-top: 16px; padding: 24px; text-align: center; color: #b9b1d1; border: 1px dashed #54497a; border-radius: 16px; }
+  #empty[hidden], #no-match[hidden] { display: none; }
   .card {
     display: flex;
     flex-direction: column;
@@ -180,7 +195,23 @@
     </form>
   </section>
 
+  <section class="panel toolbar" aria-label="찾기와 정렬">
+    <form id="filter-form" autocomplete="off">
+      <label>찾기 (플레이리스트 이름)
+        <input type="text" id="search" maxlength="40" placeholder="이름 일부를 적어 보세요">
+      </label>
+      <label>정렬
+        <select id="sort">
+          <option value="new">최근 만든 순</option>
+          <option value="stars">별점 높은 순</option>
+        </select>
+      </label>
+      <p id="count" role="status"></p>
+    </form>
+  </section>
+
   <p id="empty" hidden>아직 플레이리스트가 없어요. 위에서 하나 만들어 보세요.</p>
+  <p id="no-match" hidden>찾는 이름의 플레이리스트가 없어요. 다른 글자로 찾아 보세요.</p>
   <section id="list" aria-label="플레이리스트 목록"></section>
 
   <footer>
@@ -461,10 +492,25 @@ function renderCard(pl) {
     tools);
 }
 
+// 찾은 것만, 고른 순서로. (정렬은 그릴 때만 해요. 별점을 눌러도 카드가 갑자기 자리를 옮기지 않아요)
+function visibleList() {
+  const q = $('search').value.toLowerCase().replace(/\s+/g, '');
+  let list = data.playlists.filter(pl => !q || pl.name.toLowerCase().replace(/\s+/g, '').includes(q));
+  if ($('sort').value === 'stars') {
+    // 별점 높은 순. 별점이 없는 것은 맨 뒤, 같은 점수끼리는 최근 만든 순
+    const score = pl => { const a = average(pl); return a ? a.avg : -1; };
+    list = list.map((pl, i) => ({ pl, i })).sort((x, y) => score(y.pl) - score(x.pl) || x.i - y.i).map(e => e.pl);
+  }
+  return list;
+}
+
 function renderAll() {
-  const list = $('list');
-  list.replaceChildren(...data.playlists.map(renderCard));
-  $('empty').hidden = data.playlists.length > 0;
+  const list = visibleList();
+  const total = data.playlists.length;
+  $('list').replaceChildren(...list.map(renderCard));
+  $('empty').hidden = total > 0;
+  $('no-match').hidden = !(total > 0 && list.length === 0);
+  $('count').textContent = total ? `전체 ${total}개 중 ${list.length}개 보여요` : '';
 }
 
 function refreshCard(id) {
@@ -486,6 +532,7 @@ function create(name, nick) {
   if (!name) return '플레이리스트 이름을 적어 주세요.';
   if (!nick) return '만든 사람 별명을 적어 주세요.';
   data.nick = nick;
+  $('search').value = ''; // 찾기에 걸려 새 것이 안 보이는 일이 없게
   data.playlists.unshift({ id: Store.newId(), owner: data.myId, maker: nick, name, songs: [], ratings: {} });
   persist();
   renderAll();
@@ -549,6 +596,10 @@ $('create-form').addEventListener('submit', e => {
   $('create-msg').textContent = msg;
   if (!msg) $('new-name').value = '';
 });
+
+$('search').addEventListener('input', renderAll);
+$('sort').addEventListener('change', renderAll);
+$('filter-form').addEventListener('submit', e => e.preventDefault());
 
 $('new-nick').value = data.nick || '';
 renderAll();

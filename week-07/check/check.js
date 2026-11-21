@@ -9,6 +9,7 @@
 //   3. 남기기         : 새로 열어도 그대로인지
 //   4. 남이 만든 것    : 내 표시가 달라지면(다른 기기처럼) 내 것도 보기만 되는지 (내 아이디어)
 //   4-2. 재생      : 재생·멈춤·이어 듣기·다음 곡·이전 곡, 저절로 다음 곡, 목록을 바꾸면 앞 목록이 멈추는지
+//   4-3. 찾기·정렬  : 이름으로 찾기(띄어쓰기 무시), 없는 이름 안내, 별점 높은 순, 둘을 같이 쓰기
 //   5. 저장이 막힐 때  : 브라우저가 저장을 막아도 멈추지 않고 안내하는지
 //   6. 화면 크기      : 폰·태블릿·컴퓨터 폭에서 옆으로 잘리거나 넘치는 것이 있는지 (긴 글자 포함), 사진 찍기
 //
@@ -95,6 +96,9 @@ const REPORT_JS = `(() => {
     errors: (window.__check || { errors: [] }).errors,
     cards,
     empty: !document.getElementById('empty').hidden,
+    noMatch: !document.getElementById('no-match').hidden ? document.getElementById('no-match').innerText : null,
+    search: document.getElementById('search').value, sort: document.getElementById('sort').value,
+    count: document.getElementById('count').innerText,
     notice: notice && !notice.hidden ? notice.innerText : null,
     slotText: slot ? slot.innerText.trim() : null,
     slotControls: slot ? slot.querySelectorAll('button, a, input').length : -1,
@@ -266,6 +270,61 @@ async function main() {
         `[남기기] 새로 열어도 그대로: "${m && m.name}" · ${m && m.maker} · 곡 ${m && m.songs.length}개 · ${m && m.avg}, 남의 것에 준 별점도 유지(${(r.cards.find(c => c.id === 'sample-1') || {}).avg})`,
         `[남기기] 새로 열었더니 달라짐: ${JSON.stringify(r.cards.map(c => [c.name, c.avg, c.songs.length]))}`);
       check(r.saved && r.saved.playlists.length === 3, '[남기기] 저장 칸(localStorage)에 3개가 들어 있음', '[남기기] 저장 칸 내용이 이상함');
+
+      // 6번 기능: 찾기와 정렬
+      const setSearch = v => act(tab, `(() => { const e = document.getElementById('search'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      const setSort = v => act(tab, `(() => { const e = document.getElementById('sort'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      const names = rr => rr.cards.map(c => c.name);
+      r = await report(tab);
+      check(r.count === '전체 3개 중 3개 보여요' && r.sort === 'new' && names(r).join('|') === '아침 산책 노래|비 오는 날 듣는 노래|운동할 때 듣는 노래',
+        `[정렬] 처음엔 최근 만든 순: ${names(r).join(' → ')}, "${r.count}"`, `[정렬] 처음 순서/개수가 이상함: ${names(r).join(' → ')}, "${r.count}"`);
+      await setSort('stars');
+      r = await report(tab);
+      check(names(r).join('|') === '운동할 때 듣는 노래|비 오는 날 듣는 노래|아침 산책 노래',
+        `[정렬] 별점 높은 순: ${names(r).join(' → ')} (${r.cards.map(c => c.avg.split(' ')[0]).join(' > ')})`, `[정렬] 별점 높은 순이 이상함: ${names(r).join(' → ')} ${r.cards.map(c => c.avg).join(' / ')}`);
+      await act(tab, `${mineCard}.querySelector('button.star[data-n="5"]').click()`);
+      await setSort('new'); await setSort('stars');
+      r = await report(tab);
+      check(names(r)[0] === '아침 산책 노래' && r.cards[0].avg.startsWith('5.0점'), '[정렬] 내 별점을 5개로 바꾸면 별점 높은 순에서 맨 위로 올라감', `[정렬] 별점을 바꿨는데 순서가 그대로: ${names(r).join(' → ')}`);
+      await act(tab, `${mineCard}.querySelector('button.star[data-n="5"]').click()`); // 별점 취소 → 별점 없음
+      await setSort('new'); await setSort('stars');
+      r = await report(tab);
+      check(names(r).join('|') === '운동할 때 듣는 노래|비 오는 날 듣는 노래|아침 산책 노래' && /아직 별점이 없어요/.test(r.cards[2].avg),
+        '[정렬] 별점이 없는 것은 별점 높은 순에서 맨 뒤로 감 (최근 만든 순에서는 맨 위였음)', `[정렬] 별점 없는 것의 자리가 이상함: ${names(r).join(' → ')}`);
+      await act(tab, `${mineCard}.querySelector('button.star[data-n="4"]').click()`); // 원래대로 4개
+      await setSort('new');
+
+      await setSearch('산책');
+      r = await report(tab);
+      check(names(r).join('|') === '아침 산책 노래' && r.count === '전체 3개 중 1개 보여요', `[찾기] "산책"으로 찾으면 그것만 보임: ${names(r).join(', ')} / "${r.count}"`, `[찾기] "산책" 결과가 이상함: ${names(r).join(', ')} / "${r.count}"`);
+      await setSearch('  운동 ');
+      r = await report(tab);
+      check(names(r).join('|') === '운동할 때 듣는 노래', '[찾기] 앞뒤 띄어쓰기는 무시하고 찾음 ("  운동 " → 운동할 때 듣는 노래)', `[찾기] 띄어쓰기가 있으면 못 찾음: ${names(r).join(', ')}`);
+      await setSearch('노 래');
+      r = await report(tab);
+      check(r.cards.length === 3, '[찾기] "노 래"처럼 띄어 써도 이름 속 "노래"를 찾음 (3개 모두)', `[찾기] "노 래" 결과가 이상함: ${r.cards.length}개`);
+      await setSearch('없는이름');
+      r = await report(tab);
+      check(r.cards.length === 0 && r.noMatch && !r.empty && r.count === '전체 3개 중 0개 보여요', `[찾기] 없는 이름이면 빈 화면 대신 안내가 나옴: "${r.noMatch}"`, `[찾기] 없는 이름일 때 안내가 이상함: 카드 ${r.cards.length}개, 안내 ${r.noMatch}`);
+      await setSearch('노래'); await setSort('stars');
+      r = await report(tab);
+      check(names(r).join('|') === '운동할 때 듣는 노래|비 오는 날 듣는 노래|아침 산책 노래' && !r.noMatch, '[찾기+정렬] 찾기와 정렬을 같이 쓸 수 있음 ("노래" + 별점 높은 순)', `[찾기+정렬] 이상함: ${names(r).join(' → ')}`);
+      await setSearch(''); await setSort('new');
+      r = await report(tab);
+      check(r.cards.length === 3 && !r.noMatch && r.count === '전체 3개 중 3개 보여요', '[찾기] 찾기를 비우면 모두 돌아옴', `[찾기] 비웠는데 ${r.cards.length}개`);
+      // 찾는 중에 새로 만들면 찾기가 비워져서 새 것이 보여야 함
+      await setSearch('운동');
+      await act(tab, `document.getElementById('new-name').value = '새로 만든 것'; document.getElementById('create-form').requestSubmit();`);
+      r = await report(tab); collect(r);
+      check(r.search === '' && r.cards[0] && r.cards[0].name === '새로 만든 것' && r.count === '전체 4개 중 4개 보여요',
+        '[찾기] 찾는 중에 새로 만들어도 찾기가 비워져서 새 플레이리스트가 바로 보임', `[찾기] 새로 만든 것이 안 보일 수 있음: 찾기 "${r.search}", ${names(r).join(', ')}`);
+      await act(tab, `${mineCard}.querySelector('button.delete').click()`);
+      await act(tab, `${mineCard}.querySelector('.confirm-delete').click()`);
+      r = await report(tab);
+      check(r.cards.length === 3 && r.saved.playlists.length === 3 && r.count === '전체 3개 중 3개 보여요', '[찾기] 시험으로 만든 것을 지워 3개로 되돌림 (개수 표시도 맞음)', `[찾기] 되돌리기 실패: ${r.cards.length}개`);
+      await tab.s('Page.reload'); await wait(800);
+      r = await report(tab);
+      check(r.search === '' && r.sort === 'new' && r.cards.length === 3, '[찾기] 새로 열면 찾기·정렬은 처음 상태 (저장하지 않음, 목록은 그대로)', `[찾기] 새로 열었을 때 이상함: 찾기 "${r.search}", 정렬 ${r.sort}`);
 
       // 4. 내 아이디어: 내 표시가 달라지면(다른 기기에서 열면) 내 것도 보기만 됨
       await act(tab, `(() => { const d = JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)})); d.myId = 'another-device'; localStorage.setItem(${JSON.stringify(SAVE_KEY)}, JSON.stringify(d)); })()`);
