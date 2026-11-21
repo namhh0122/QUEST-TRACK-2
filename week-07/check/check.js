@@ -5,6 +5,7 @@
 //
 // 하는 일 (파일을 두 번 누른 것처럼 file:// 로 열어서 사람이 하는 것을 따라 해요):
 //   1. 처음 열기      : 예시 2개가 보이고, 다른 사람 것에는 고치기·지우기가 없는지, 로그인 자리가 빈 칸인지
+//   1-1. 위쪽 줄·찾기줄·별: 찾기 단추가 제목 옆, 정렬은 작게 오른쪽 위, 찾기 줄 열고 닫기, 첫 화면에 카드가 보이는지, 빈 별 대비
 //   1-2. + 칸      : 새 플레이리스트 만들기가 + 칸으로 카드 옆에 있고, 눌러 열고 취소·Esc·만든 뒤 닫히는지
 //   2. 만들기·고치기   : 만들기, 곡 넣고 빼기, 별점, 이름 바꾸기, 지우기(되묻기 포함), 빈칸 안내
 //   3. 남기기         : 새로 열어도 그대로인지
@@ -118,6 +119,18 @@ const REPORT_JS = `(() => {
     slotText: slot ? slot.innerText.trim() : null,
     slotControls: slot ? slot.querySelectorAll('button, a, input').length : -1,
     createMsg: document.getElementById('create-msg').innerText,
+    head: (() => {
+      const rc = el => { const r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]; };
+      const bar = document.getElementById('search-bar'), tg = document.getElementById('search-toggle');
+      const card = document.querySelector('.card');
+      const star = card && card.querySelector('button.star:not(.on)');
+      return { h1: rc(document.querySelector('h1')), toggle: rc(tg), toggleText: tg.innerText.trim(), expanded: tg.getAttribute('aria-expanded'),
+        sort: rc(document.getElementById('sort')), sortH: Math.round(document.getElementById('sort').getBoundingClientRect().height),
+        barShown: !bar.hidden && bar.offsetParent !== null, focus: document.activeElement.id,
+        oldPanel: !!document.querySelector('.toolbar'), header: rc(document.querySelector('header')), viewH: innerHeight,
+        starOff: star ? getComputedStyle(star).color : null, cardBg: card ? getComputedStyle(card).backgroundColor : null,
+        rateLabels: [...document.querySelectorAll('.card .rate-label')].filter(e => e.offsetParent !== null).map(e => e.innerText) };
+    })(),
     add: (() => {
       const t = document.getElementById('add-tile'), b = document.getElementById('add-open'), f = document.getElementById('create-form');
       const rc = el => { if (!el) return null; const r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]; };
@@ -187,6 +200,33 @@ async function main() {
       check(r.slotText === '로그인 자리' && r.slotControls === 0,
         '[로그인 자리] 화면 위쪽에 "로그인 자리"라고만 적힌 빈 칸이 있고, 누를 단추나 입력칸은 없음',
         `[로그인 자리] 문구/내용이 다름: "${r.slotText}", 단추 ${r.slotControls}개`);
+
+      // 위쪽 줄: 찾기 단추는 제목 옆, 정렬은 작게 오른쪽 위
+      const hd = r.head;
+      check(hd.toggleText === '찾기' && hd.toggle[0] >= hd.h1[2] && Math.abs((hd.toggle[1] + hd.toggle[3]) / 2 - (hd.h1[1] + hd.h1[3]) / 2) < 14 && !hd.oldPanel,
+        '[위쪽 줄] "찾기" 단추가 맨 위 "플레이리스트" 제목 바로 옆(오른쪽)에 있고, 따로 있던 찾기·정렬 칸은 없어짐', `[위쪽 줄] 찾기 단추 자리가 이상함: ${JSON.stringify(hd)}`);
+      check(hd.sort[2] >= 390 - 16 - 4 && hd.sort[1] < hd.header[1] + 60 && hd.sortH <= 44,
+        `[위쪽 줄] 정렬은 작은 선택 상자(높이 ${hd.sortH}px)로 맨 위 오른쪽 끝에 있음`, `[위쪽 줄] 정렬 자리/크기가 이상함: ${JSON.stringify(hd.sort)} 높이 ${hd.sortH}`);
+      check(!hd.barShown && hd.expanded === 'false', '[찾기] 처음엔 찾기 입력줄이 닫혀 있어 화면을 차지하지 않음', `[찾기] 처음부터 찾기 줄이 열려 있음: ${JSON.stringify(hd)}`);
+      check(r.add.card && r.add.card[1] < hd.viewH * 0.72, `[첫 화면] 폰(390×844)에서 첫 플레이리스트 카드가 화면 위쪽 72% 안에서 시작함 (카드 위 ${r.add.card && r.add.card[1]}px / 화면 ${hd.viewH}px)`, `[첫 화면] 첫 카드가 너무 아래에 있음: ${r.add.card && r.add.card[1]}px / ${hd.viewH}px`);
+      await act(tab, `document.getElementById('search-toggle').click()`);
+      r = await report(tab);
+      check(r.head.barShown && r.head.focus === 'search' && r.head.expanded === 'true', '[찾기] "찾기"를 누르면 입력줄이 열리고 커서가 입력칸에 감', `[찾기] 열었는데 이상함: ${JSON.stringify(r.head)}`);
+      await act(tab, `(() => { const e = document.getElementById('search'); e.value = '운동'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await act(tab, `document.getElementById('search-close').click()`);
+      r = await report(tab);
+      check(!r.head.barShown && r.search === '' && r.cards.length === 2 && r.head.expanded === 'false', '[찾기] "닫기"를 누르면 줄이 닫히고 찾던 글자도 지워져서 목록이 모두 돌아옴', `[찾기] 닫았는데 이상함: 찾기 "${r.search}", 카드 ${r.cards.length}개`);
+      await act(tab, `document.getElementById('search-toggle').click()`);
+      await act(tab, `document.getElementById('search').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      r = await report(tab);
+      check(!r.head.barShown, '[찾기] 찾기 줄에서 Esc 키로도 닫힘', '[찾기] Esc 로 안 닫힘');
+
+      // 별점 눈에 띄게
+      const lum = rgb => { const v = rgb.match(/[0-9.]+/g).slice(0, 3).map(n => { n /= 255; return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+      const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      const cr = ratio(r.head.starOff, r.head.cardBg);
+      check(r.head.rateLabels.length === 2 && r.head.rateLabels.every(t => t.startsWith('별점 주기')), `[별점] 카드마다 별 위에 "${r.head.rateLabels[0]}" 안내가 있음`, `[별점] 안내 글이 없거나 모자람: ${JSON.stringify(r.head.rateLabels)}`);
+      check(cr >= 3, `[별점] 빈 별과 카드 바탕의 색 대비가 ${cr.toFixed(1)}:1 로 (기준 3:1 이상) 잘 보임`, `[별점] 빈 별이 바탕에 묻힘: 대비 ${cr.toFixed(1)}:1 (${r.head.starOff} / ${r.head.cardBg})`);
 
       // + 칸
       check(r.add.btnShown && r.add.btnText === '+ 새 플레이리스트 만들기' && !r.add.formShown && r.add.expanded === 'false' && !r.add.oldPanel,
@@ -314,7 +354,7 @@ async function main() {
       check(r.saved && r.saved.playlists.length === 3, '[남기기] 저장 칸(localStorage)에 3개가 들어 있음', '[남기기] 저장 칸 내용이 이상함');
 
       // 6번 기능: 찾기와 정렬
-      const setSearch = v => act(tab, `(() => { const e = document.getElementById('search'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      const setSearch = v => act(tab, `(() => { if (document.getElementById('search-bar').hidden) document.getElementById('search-toggle').click(); const e = document.getElementById('search'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
       const setSort = v => act(tab, `(() => { const e = document.getElementById('sort'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       const names = rr => rr.cards.map(c => c.name);
       r = await report(tab);

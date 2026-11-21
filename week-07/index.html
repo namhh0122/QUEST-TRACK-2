@@ -20,7 +20,7 @@
     --muted: #a3bba9;
     --danger: #ff7b7b;
     --star: #ffc83d;
-    --star-off: #2f4437;
+    --star-off: #6a8a76;
     --green-soft: #0f2c1a;
     --green-faint: #08150d;
   }
@@ -40,18 +40,25 @@
   /* 위쪽 줄: 사이트 이름 + 로그인 자리 */
   header {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding-bottom: 14px;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 12px;
     border-bottom: 2px solid var(--accent);
   }
-  h1 { margin: 0; font-size: clamp(19px, 5vw, 22px); font-weight: 700; color: var(--accent); }
-  .sub { margin: 2px 0 0; font-size: 15px; color: var(--muted); }
+  .head-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; }
+  .title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .head-bottom { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+  button.search-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 4px 10px; font-size: 15px; flex: none; }
+  button.search-btn[aria-expanded="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  #sort { width: auto; min-height: 40px; padding: 4px 6px; font-size: 14px; flex: none; margin-left: auto; }
+  #search-bar { margin-top: 12px; }
+  #filter-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #filter-form input { flex: 1 1 200px; width: auto; }
+  #filter-form button { flex: none; }
+  h1 { margin: 0; font-size: clamp(18px, 5vw, 22px); font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .sub { margin: 0; font-size: 14px; color: var(--muted); }
   #login-slot {
-    min-width: 110px;
-    padding: 10px 16px;
+    padding: 6px 14px;
     border: 2px dashed var(--line-strong);
     border-radius: 12px;
     color: var(--muted);
@@ -113,8 +120,6 @@
   .msg:empty { display: none; }
 
   /* 찾기·정렬 */
-  .toolbar form { align-items: flex-end; }
-  .toolbar label { flex: 1 1 200px; }
   #count { flex-basis: 100%; margin: 0; font-size: 14px; color: var(--muted); }
   #count:empty { display: none; }
 
@@ -188,7 +193,8 @@
   .card h2 { font-size: clamp(24px, 6.8vw, 30px); font-weight: 800; line-height: 1.25; color: #ffffff; letter-spacing: -0.01em; }
   .maker { margin: -4px 0 0; font-size: 15px; color: var(--muted); overflow-wrap: anywhere; }
 
-  .rating { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .rating { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; }
+  .rate-label { flex-basis: 100%; font-size: 14px; font-weight: 600; color: var(--muted); }
   .stars { display: flex; margin-left: -6px; }
   button.star {
     min-width: 42px;
@@ -241,29 +247,34 @@
 <body>
 <div class="wrap">
   <header>
-    <div>
-      <h1>플레이리스트</h1>
-      <p class="sub">플레이리스트를 만들어 두고 언제든지 즐겨요</p>
+    <div class="head-top">
+      <div class="title-row">
+        <h1>플레이리스트</h1>
+        <button type="button" id="search-toggle" class="plain search-btn" aria-expanded="false" aria-controls="search-bar">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+          <span>찾기</span>
+        </button>
+      </div>
+      <select id="sort" aria-label="정렬">
+        <option value="new">최근 만든 순</option>
+        <option value="stars">별점 높은 순</option>
+      </select>
     </div>
-    <div id="login-slot">로그인 자리</div>
+    <div class="head-bottom">
+      <p class="sub">플레이리스트를 만들어 두고 언제든지 즐겨요</p>
+      <div id="login-slot">로그인 자리</div>
+    </div>
   </header>
 
-  <p id="notice" role="status" hidden></p>
-
-  <section class="panel toolbar" aria-label="찾기와 정렬">
+  <div id="search-bar" hidden>
     <form id="filter-form" autocomplete="off">
-      <label>찾기 (플레이리스트 이름)
-        <input type="text" id="search" maxlength="40" placeholder="이름 일부를 적어 보세요">
-      </label>
-      <label>정렬
-        <select id="sort">
-          <option value="new">최근 만든 순</option>
-          <option value="stars">별점 높은 순</option>
-        </select>
-      </label>
+      <input type="text" id="search" maxlength="40" placeholder="플레이리스트 이름의 일부를 적어 보세요" aria-label="플레이리스트 이름으로 찾기">
+      <button type="button" class="plain" id="search-close">닫기</button>
       <p id="count" role="status"></p>
     </form>
-  </section>
+  </div>
+
+  <p id="notice" role="status" hidden></p>
 
   <p id="empty" hidden>아직 플레이리스트가 없어요. + 칸을 눌러 하나 만들어 보세요.</p>
   <p id="no-match" hidden>찾는 이름의 플레이리스트가 없어요. 다른 글자로 찾아 보세요.</p>
@@ -610,7 +621,7 @@ function renderCard(pl) {
     h('span', { class: 'badge' + (mine ? '' : ' view') }, mine ? '내가 만든 것' : '보기만 해요'),
     h('h2', null, pl.name),
     h('p', { class: 'maker' }, '만든 사람: ', h('strong', null, pl.maker)),
-    h('div', { class: 'rating' }, stars,
+    h('div', { class: 'rating' }, h('span', { class: 'rate-label' }, '별점 주기 (눌러 보세요)'), stars,
       h('span', { class: 'avg' }, avg ? `${avg.avg.toFixed(1)}점 (${avg.count}명)` : '아직 별점이 없어요')),
     songs,
     mine && pl.songs.length > 1 ? h('p', { class: 'hint' }, '≡ 를 끌어서 곡 순서를 바꿔요. (키보드: ≡ 에서 위·아래 화살표)') : null,
@@ -658,7 +669,7 @@ function create(name, nick) {
   if (!name) return '플레이리스트 이름을 적어 주세요.';
   if (!nick) return '만든 사람 별명을 적어 주세요.';
   data.nick = nick;
-  $('search').value = ''; // 찾기에 걸려 새 것이 안 보이는 일이 없게
+  openSearch(false); // 찾기에 걸려 새 것이 안 보이는 일이 없게 (찾기 줄을 닫고 비움)
   data.playlists.unshift({ id: Store.newId(), owner: data.myId, maker: nick, name, songs: [], ratings: {} });
   persist();
   renderAll();
@@ -807,6 +818,16 @@ $('create-form').addEventListener('submit', e => {
   if (!msg) openCreate(false);
 });
 
+// 찾기 줄: 위쪽의 "찾기" 단추로 열고, 닫으면 찾던 글자도 지워서 목록이 전부 보여요
+function openSearch(open) {
+  $('search-bar').hidden = !open;
+  $('search-toggle').setAttribute('aria-expanded', String(open));
+  if (open) $('search').focus();
+  else if ($('search').value) { $('search').value = ''; renderAll(); }
+}
+$('search-toggle').addEventListener('click', () => openSearch($('search-bar').hidden));
+$('search-close').addEventListener('click', () => { openSearch(false); $('search-toggle').focus(); });
+$('search-bar').addEventListener('keydown', e => { if (e.key === 'Escape') { openSearch(false); $('search-toggle').focus(); } });
 $('search').addEventListener('input', renderAll);
 $('sort').addEventListener('change', renderAll);
 $('filter-form').addEventListener('submit', e => e.preventDefault());
