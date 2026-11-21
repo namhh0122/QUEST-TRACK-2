@@ -119,12 +119,46 @@
   #count:empty { display: none; }
 
   /* 목록 */
-  #list {
+  [hidden] { display: none !important; }
+  #board {
     margin-top: 16px;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
     gap: 16px;
   }
+  #list { display: contents; } /* 카드들이 + 칸과 같은 줄에 나란히 놓이게 */
+
+  /* + 칸: 다른 사람 것 옆에 놓이는 "새로 만들기" 칸 */
+  .add-tile {
+    min-width: 0;
+    border: 2px dashed var(--line-strong);
+    border-radius: 14px;
+    background: transparent;
+  }
+  .add-tile.open { border-style: solid; border-color: var(--accent); background: var(--card); padding: 18px; }
+  #add-open {
+    width: 100%;
+    min-height: 150px;
+    height: 100%;
+    flex-direction: column;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--accent);
+    font-size: 16px;
+    font-weight: 600;
+  }
+  #add-open:hover { background: var(--green-soft); }
+  #add-open .plus { font-size: 56px; line-height: 1; font-weight: 300; }
+  #create-form { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+  #create-form h2 { font-size: 18px; font-weight: 700; color: var(--accent); }
+  #create-form label { flex: none; }
+  .form-buttons { display: flex; gap: 8px; }
+  .form-buttons button[type=submit] { flex: 1; }
   #empty, #no-match { margin-top: 16px; padding: 24px; text-align: center; color: var(--muted); background: var(--card); border: 1px dashed var(--line-strong); border-radius: 14px; }
   #empty[hidden], #no-match[hidden] { display: none; }
   .card {
@@ -216,20 +250,6 @@
 
   <p id="notice" role="status" hidden></p>
 
-  <section class="panel" aria-labelledby="create-title">
-    <h2 id="create-title">새 플레이리스트 만들기</h2>
-    <form id="create-form" autocomplete="off">
-      <label>플레이리스트 이름
-        <input type="text" id="new-name" maxlength="40" placeholder="예: 비 오는 날 노래">
-      </label>
-      <label>만든 사람 (별명)
-        <input type="text" id="new-nick" maxlength="20" placeholder="실명 말고 별명">
-      </label>
-      <button type="submit">만들기</button>
-      <p class="msg" id="create-msg" role="alert"></p>
-    </form>
-  </section>
-
   <section class="panel toolbar" aria-label="찾기와 정렬">
     <form id="filter-form" autocomplete="off">
       <label>찾기 (플레이리스트 이름)
@@ -245,9 +265,31 @@
     </form>
   </section>
 
-  <p id="empty" hidden>아직 플레이리스트가 없어요. 위에서 하나 만들어 보세요.</p>
+  <p id="empty" hidden>아직 플레이리스트가 없어요. + 칸을 눌러 하나 만들어 보세요.</p>
   <p id="no-match" hidden>찾는 이름의 플레이리스트가 없어요. 다른 글자로 찾아 보세요.</p>
-  <section id="list" aria-label="플레이리스트 목록"></section>
+  <section id="board" aria-label="플레이리스트 목록">
+    <div id="add-tile" class="add-tile">
+      <button type="button" id="add-open" aria-expanded="false" aria-controls="create-form">
+        <span class="plus" aria-hidden="true">+</span>
+        <span>새 플레이리스트 만들기</span>
+      </button>
+      <form id="create-form" autocomplete="off" aria-label="새 플레이리스트 만들기" hidden>
+        <h2>새 플레이리스트</h2>
+        <label>플레이리스트 이름
+          <input type="text" id="new-name" maxlength="40" placeholder="예: 비 오는 날 노래">
+        </label>
+        <label>만든 사람 (별명)
+          <input type="text" id="new-nick" maxlength="20" placeholder="실명 말고 별명">
+        </label>
+        <div class="form-buttons">
+          <button type="submit">만들기</button>
+          <button type="button" class="plain" id="add-cancel">취소</button>
+        </div>
+        <p class="msg" id="create-msg" role="alert"></p>
+      </form>
+    </div>
+    <div id="list"></div>
+  </section>
 
   <footer>
     플레이리스트는 이 기기의 브라우저에만 저장돼요. 다른 사람의 것은 볼 수만 있고 고치거나 지울 수 없어요.
@@ -741,11 +783,28 @@ function rate(id, n) {
   refreshCard(id);
 }
 
+// + 칸을 누르면 칸이 입력칸으로 바뀌고, 만들거나 취소하면 다시 + 로 돌아와요
+function openCreate(open) {
+  $('create-form').hidden = !open;
+  $('add-open').hidden = open;
+  $('add-open').setAttribute('aria-expanded', String(open));
+  $('add-tile').classList.toggle('open', open);
+  if (open) {
+    $('new-name').focus();
+  } else {
+    $('create-msg').textContent = '';
+    $('new-name').value = '';
+  }
+}
+
+$('add-open').addEventListener('click', () => openCreate(true));
+$('add-cancel').addEventListener('click', () => { openCreate(false); $('add-open').focus(); });
+$('create-form').addEventListener('keydown', e => { if (e.key === 'Escape') { openCreate(false); $('add-open').focus(); } });
 $('create-form').addEventListener('submit', e => {
   e.preventDefault();
   const msg = create($('new-name').value, $('new-nick').value);
   $('create-msg').textContent = msg;
-  if (!msg) $('new-name').value = '';
+  if (!msg) openCreate(false);
 });
 
 $('search').addEventListener('input', renderAll);

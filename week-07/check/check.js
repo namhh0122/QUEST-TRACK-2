@@ -5,6 +5,7 @@
 //
 // 하는 일 (파일을 두 번 누른 것처럼 file:// 로 열어서 사람이 하는 것을 따라 해요):
 //   1. 처음 열기      : 예시 2개가 보이고, 다른 사람 것에는 고치기·지우기가 없는지, 로그인 자리가 빈 칸인지
+//   1-2. + 칸      : 새 플레이리스트 만들기가 + 칸으로 카드 옆에 있고, 눌러 열고 취소·Esc·만든 뒤 닫히는지
 //   2. 만들기·고치기   : 만들기, 곡 넣고 빼기, 별점, 이름 바꾸기, 지우기(되묻기 포함), 빈칸 안내
 //   3. 남기기         : 새로 열어도 그대로인지
 //   4. 남이 만든 것    : 내 표시가 달라지면(다른 기기처럼) 내 것도 보기만 되는지 (내 아이디어)
@@ -117,6 +118,13 @@ const REPORT_JS = `(() => {
     slotText: slot ? slot.innerText.trim() : null,
     slotControls: slot ? slot.querySelectorAll('button, a, input').length : -1,
     createMsg: document.getElementById('create-msg').innerText,
+    add: (() => {
+      const t = document.getElementById('add-tile'), b = document.getElementById('add-open'), f = document.getElementById('create-form');
+      const rc = el => { if (!el) return null; const r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]; };
+      return { btnShown: b.offsetParent !== null, btnText: b.innerText.replace(/\\s+/g, ' ').trim(), formShown: f.offsetParent !== null,
+        expanded: b.getAttribute('aria-expanded'), focus: document.activeElement.id, tile: rc(t), card: rc(document.querySelector('.card')),
+        oldPanel: !!document.getElementById('create-title') };
+    })(),
     width: W, scrollWidth: document.documentElement.scrollWidth,
     outside: outside.slice(0, 5),
     saved: (() => { try { return JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)})); } catch (e) { return null; } })(),
@@ -141,6 +149,7 @@ async function openApp(cdp, pageUrl, mode, size) {
 
 const report = tab => evaluate(tab, REPORT_JS);
 const act = async (tab, js) => { const v = await evaluate(tab, js); await wait(150); return v; };
+const OPEN = "(() => { const f = document.getElementById('create-form'); if (f.hidden) document.getElementById('add-open').click(); })(); ";
 const mineCard = `document.querySelector('.card[data-mine="true"]')`;
 const sampleCard = `document.querySelector('.card[data-id="sample-1"]')`;
 const fillSubmit = (formExpr, values) => `(() => { const f = ${formExpr}; if (!f) return 'form 없음';
@@ -179,18 +188,37 @@ async function main() {
         '[로그인 자리] 화면 위쪽에 "로그인 자리"라고만 적힌 빈 칸이 있고, 누를 단추나 입력칸은 없음',
         `[로그인 자리] 문구/내용이 다름: "${r.slotText}", 단추 ${r.slotControls}개`);
 
+      // + 칸
+      check(r.add.btnShown && r.add.btnText === '+ 새 플레이리스트 만들기' && !r.add.formShown && r.add.expanded === 'false' && !r.add.oldPanel,
+        `[+ 칸] 처음엔 입력칸 대신 "${r.add.btnText}" 칸(+)만 보이고, 위쪽의 따로 있던 만들기 칸은 없음`, `[+ 칸] 처음 모습이 이상함: ${JSON.stringify(r.add)}`);
+      check(r.add.card && r.add.tile[1] < r.add.card[3], '[+ 칸] + 칸이 플레이리스트 카드들과 같은 목록 안, 맨 앞에 놓임', '[+ 칸] + 칸이 카드 아래로 밀려남');
+      await act(tab, `document.getElementById('add-open').click()`);
+      r = await report(tab);
+      check(!r.add.btnShown && r.add.formShown && r.add.expanded === 'true' && r.add.focus === 'new-name',
+        '[+ 칸] +를 누르면 그 자리가 입력칸(이름·별명·만들기·취소)으로 바뀌고 이름 칸에 커서가 감', `[+ 칸] 열었는데 이상함: ${JSON.stringify(r.add)}`);
+      await act(tab, `document.getElementById('new-name').value = '쓰다 만 것'; document.getElementById('add-cancel').click()`);
+      r = await report(tab);
+      check(r.add.btnShown && !r.add.formShown && r.cards.length === 2 && r.createMsg === '', '[+ 칸] 취소하면 아무것도 만들지 않고 다시 +로 돌아옴', `[+ 칸] 취소가 이상함: ${JSON.stringify(r.add)} 카드 ${r.cards.length}개`);
+      await act(tab, `document.getElementById('add-open').click()`);
+      r = await report(tab);
+      check(r.add.formShown && (await evaluate(tab, `document.getElementById('new-name').value`)) === '', '[+ 칸] 취소한 뒤 다시 열면 쓰다 만 글자는 비어 있음', '[+ 칸] 쓰다 만 글자가 남아 있음');
+      await act(tab, `document.getElementById('new-name').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      r = await report(tab);
+      check(r.add.btnShown && !r.add.formShown, '[+ 칸] Esc 키로도 닫힘', '[+ 칸] Esc 로 안 닫힘');
+
       // 2. 만들기
-      await act(tab, `document.getElementById('create-form').requestSubmit()`);
+      await act(tab, `${OPEN}document.getElementById('create-form').requestSubmit()`);
       r = await report(tab);
       check(r.cards.length === 2 && /이름/.test(r.createMsg),
         `[만들기] 이름 없이 만들면 안내가 나오고 안 만들어짐: "${r.createMsg}"`, `[만들기] 이름 없이 눌렀을 때 안내/동작이 이상함: "${r.createMsg}", 카드 ${r.cards.length}개`);
-      await act(tab, `document.getElementById('new-name').value='산책할 때'; document.getElementById('new-nick').value=''; document.getElementById('create-form').requestSubmit();`);
+      await act(tab, `${OPEN}document.getElementById('new-name').value='산책할 때'; document.getElementById('new-nick').value=''; document.getElementById('create-form').requestSubmit();`);
       r = await report(tab);
       check(r.cards.length === 2 && /별명/.test(r.createMsg),
         `[만들기] 별명 없이 만들면 안내: "${r.createMsg}"`, `[만들기] 별명 없이 눌렀을 때 안내/동작이 이상함: "${r.createMsg}"`);
-      await act(tab, `document.getElementById('new-nick').value='  테스트  별명 '; document.getElementById('create-form').requestSubmit();`);
+      await act(tab, `${OPEN}document.getElementById('new-nick').value='  테스트  별명 '; document.getElementById('create-form').requestSubmit();`);
       r = await report(tab); collect(r);
       const mine = r.cards.find(c => c.mine);
+      check(r.add.btnShown && !r.add.formShown, '[+ 칸] 만들고 나면 입력칸이 닫히고 다시 +가 보임', `[+ 칸] 만든 뒤에도 입력칸이 열려 있음: ${JSON.stringify(r.add)}`);
       check(mine && r.cards[0].mine && mine.name === '산책할 때' && mine.maker === '테스트 별명' && /아직 별점이 없어요/.test(mine.avg),
         `[만들기] 새 플레이리스트가 맨 위에 생김: "${mine && mine.name}" by ${mine && mine.maker} (공백 정리됨), "${mine && mine.avg}"`,
         `[만들기] 새 플레이리스트가 이상함: ${JSON.stringify(mine)}`);
@@ -328,7 +356,7 @@ async function main() {
       check(r.cards.length === 3 && !r.noMatch && r.count === '전체 3개 중 3개 보여요', '[찾기] 찾기를 비우면 모두 돌아옴', `[찾기] 비웠는데 ${r.cards.length}개`);
       // 찾는 중에 새로 만들면 찾기가 비워져서 새 것이 보여야 함
       await setSearch('운동');
-      await act(tab, `document.getElementById('new-name').value = '새로 만든 것'; document.getElementById('create-form').requestSubmit();`);
+      await act(tab, `${OPEN}document.getElementById('new-name').value = '새로 만든 것'; document.getElementById('create-form').requestSubmit();`);
       r = await report(tab); collect(r);
       check(r.search === '' && r.cards[0] && r.cards[0].name === '새로 만든 것' && r.count === '전체 4개 중 4개 보여요',
         '[찾기] 찾는 중에 새로 만들어도 찾기가 비워져서 새 플레이리스트가 바로 보임', `[찾기] 새로 만든 것이 안 보일 수 있음: 찾기 "${r.search}", ${names(r).join(', ')}`);
@@ -562,7 +590,7 @@ async function main() {
     try {
       let r = await evaluate(blockedTab, REPORT_JS.replace(/saved: \(\(\) => \{.*?\}\)\(\),/s, 'saved: null,'));
       check(r.cards.length === 2 && r.notice && r.notice.includes('저장'), `[저장 막힘] 저장이 막혀도 화면은 열리고 안내가 나옴: "${r.notice}"`, `[저장 막힘] 안내가 없거나 화면이 안 열림: 카드 ${r.cards.length}개, 안내 ${r.notice}`);
-      await evaluate(blockedTab, `document.getElementById('new-name').value='막힌 곳'; document.getElementById('new-nick').value='별명'; document.getElementById('create-form').requestSubmit();`);
+      await evaluate(blockedTab, `${OPEN}document.getElementById('new-name').value='막힌 곳'; document.getElementById('new-nick').value='별명'; document.getElementById('create-form').requestSubmit();`);
       await wait(200);
       r = await evaluate(blockedTab, REPORT_JS.replace(/saved: \(\(\) => \{.*?\}\)\(\),/s, 'saved: null,'));
       check(r.cards.some(c => c.mine && c.name === '막힌 곳'), '[저장 막힘] 저장이 막혀도 만들기는 지금 화면에서 됨', '[저장 막힘] 만들기가 멈춤');
@@ -592,6 +620,9 @@ async function main() {
       const t = await openApp(cdp, pageUrl, 'fresh', sz);
       try {
         const r = await report(t); collect(r);
+        const sameRow = r.add.card && Math.abs(r.add.tile[1] - r.add.card[1]) <= 2 && r.add.tile[2] <= r.add.card[0] + 2;
+        const stacked = r.add.card && r.add.tile[3] <= r.add.card[1] + 2;
+        check(sz.w >= 768 ? sameRow : stacked, `[+ 칸 ${sz.w}×${sz.h}] ${sz.w >= 768 ? '+ 칸이 플레이리스트 카드와 같은 줄에, 맨 앞에 나란히 놓임' : '좁은 폰 화면에서는 + 칸이 카드 바로 위에 놓임'}`, `[+ 칸 ${sz.w}×${sz.h}] + 칸 자리가 이상함: 칸 ${JSON.stringify(r.add.tile)}, 첫 카드 ${JSON.stringify(r.add.card)}`);
         check(r.scrollWidth <= r.width && !r.outside.length, `[화면 ${sz.w}×${sz.h}] 처음 화면도 안 넘침`, `[화면 ${sz.w}×${sz.h}] 처음 화면이 넘침: ${r.outside.join(', ')}`);
         await shoot(t, path.join(SHOTS_DIR, `music-fresh-${sz.name}-${sz.w}x${sz.h}.png`), shots);
       } finally {
