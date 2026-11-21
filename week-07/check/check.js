@@ -10,6 +10,7 @@
 //   4. 남이 만든 것    : 내 표시가 달라지면(다른 기기처럼) 내 것도 보기만 되는지 (내 아이디어)
 //   4-2. 재생      : 재생·멈춤·이어 듣기·다음 곡·이전 곡, 저절로 다음 곡, 목록을 바꾸면 앞 목록이 멈추는지
 //   4-3. 찾기·정렬  : 이름으로 찾기(띄어쓰기 무시), 없는 이름 안내, 별점 높은 순, 둘을 같이 쓰기
+//   4-4. 곡 순서    : 끌어서 옮기기(마우스·터치), 키보드 화살표, 남의 목록엔 손잡이 없음, 듣는 중에 옮겨도 따라가는지
 //   5. 저장이 막힐 때  : 브라우저가 저장을 막아도 멈추지 않고 안내하는지
 //   6. 화면 크기      : 폰·태블릿·컴퓨터 폭에서 옆으로 잘리거나 넘치는 것이 있는지 (긴 글자 포함), 사진 찍기
 //
@@ -48,6 +49,14 @@ function hookScript(mode) {
     if (!sessionStorage.getItem('__started')) {
       sessionStorage.setItem('__started', '1');
       localStorage.clear();
+      if (mode === 'drag') {
+        const song = t => ({ t, a: '밴드' });
+        localStorage.setItem(${JSON.stringify(SAVE_KEY)}, JSON.stringify({ myId: 'me', nick: '별', playlists: [
+          { id: 'drag-1', owner: 'me', maker: '별', name: '끌기 시험', songs: ['가곡', '나곡', '다곡', '라곡'].map(song), ratings: {} },
+          { id: 'sample-1', owner: 'sample-a', maker: '구름이', name: '비 오는 날 듣는 노래',
+            songs: [{ t: '빗소리 산책', a: '달빛 밴드' }, { t: '우산 아래서', a: '하늘 트리오' }], ratings: {} },
+        ] }));
+      }
       if (mode === 'long') {
         const A = 'ㄱ'.repeat(40), N = 'ㄴ'.repeat(20), T = 'ㅌ'.repeat(60), S = 'ㅅ'.repeat(40);
         localStorage.setItem(${JSON.stringify(SAVE_KEY)}, JSON.stringify({ myId: 'me', nick: N, playlists: [
@@ -83,7 +92,7 @@ const REPORT_JS = `(() => {
     addForm: $$('form.add-song', c).length, renameForm: $$('form.rename', c).length,
     deleteBtn: $$('button.delete', c).length, note: $$('.no-edit-note', c).length,
     confirm: $$('.confirm-delete', c).length, badge: c.querySelector('.badge').innerText,
-    players: $$('.player', c).length,
+    players: $$('.player', c).length, handles: $$('.handle', c).length,
     playLabel: (c.querySelector('[data-role=play]') || {}).innerText || null,
     prevOff: c.querySelector('[data-role=prev]') ? c.querySelector('[data-role=prev]').disabled : null,
     nextOff: c.querySelector('[data-role=next]') ? c.querySelector('[data-role=next]').disabled : null,
@@ -158,7 +167,7 @@ async function main() {
       check(r.cards.every(c => c.songs.length >= 1 && c.avg.includes('점')),
         `[처음] 예시마다 곡과 별점이 보임 (${r.cards.map(c => c.avg).join(' / ')}), 첫 곡: "${r.cards[0] && r.cards[0].songs[0]}"`,
         '[처음] 예시에 곡이나 별점이 안 보임');
-      check(r.cards.every(c => !c.addForm && !c.renameForm && !c.deleteBtn && !c.removeBtns && c.note === 1),
+      check(r.cards.every(c => !c.addForm && !c.renameForm && !c.deleteBtn && !c.removeBtns && !c.handles && c.note === 1),
         '[남이 만든 것] 예시(다른 사람 것)에는 곡 넣기·빼기·이름 바꾸기·지우기가 없고 "볼 수만 있어요" 안내만 있음',
         '[남이 만든 것] 다른 사람 것에 고치기·지우기 단추가 보임');
       check(r.slotText === '로그인 자리' && r.slotControls === 0,
@@ -331,7 +340,7 @@ async function main() {
       await tab.s('Page.reload'); await wait(800);
       r = await report(tab); collect(r);
       const theirs = r.cards.find(c => c.name === '아침 산책 노래');
-      check(theirs && !theirs.mine && !theirs.addForm && !theirs.renameForm && !theirs.deleteBtn && !theirs.removeBtns && theirs.note === 1 && theirs.songs.length === 1,
+      check(theirs && !theirs.mine && !theirs.addForm && !theirs.renameForm && !theirs.deleteBtn && !theirs.removeBtns && !theirs.handles && theirs.note === 1 && theirs.songs.length === 1,
         '[남이 만든 것] 다른 기기(내 표시가 다름)에서 열면 내가 만든 것도 보이긴 하지만 곡·이름·지우기 도구가 없음',
         `[남이 만든 것] 다른 기기에서 열었는데 고칠 수 있거나 안 보임: ${JSON.stringify(theirs)}`);
       check(r.cards.every(c => !c.mine), '[남이 만든 것] 그 기기에서는 "내가 만든 것"이 하나도 없음', '[남이 만든 것] 내 것으로 잘못 보이는 카드가 있음');
@@ -356,6 +365,115 @@ async function main() {
       await tab.s('Runtime.evaluate', { expression: 'localStorage.removeItem(' + JSON.stringify(SAVE_KEY) + ')' });
     } finally {
       await tab.close();
+    }
+
+    // 7번 기능: 곡 순서 바꾸기 (끌어서 옮기기)
+    {
+      const rowsOf = async (t, which) => (await evaluate(t, `(() => { document.querySelector('.card[data-id="drag-1"]').scrollIntoView({ block: 'center' }); return [...document.querySelectorAll('.card[data-id="drag-1"] li.song')].map(li => {
+        const b = li.querySelector('.handle'), r = li.getBoundingClientRect(), h = b && b.getBoundingClientRect();
+        return { text: li.innerText.replace(/\\s+/g, ' ').replace(/ ?빼기$/, '').split(' · ')[0], hx: h && h.left + h.width / 2, hy: h && h.top + h.height / 2, cy: r.top + r.height / 2 };
+      }); })()`));
+      const orderOf = async t => (await rowsOf(t)).map(x => x.text);
+      const savedOf = async t => (await evaluate(t, `JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)})).playlists.find(p => p.id === 'drag-1').songs.map(s => s.t)`));
+      const handlesOf = async t => (await report(t)).cards.map(cd => cd.id + ':' + cd.handles).join(' ');
+      const same = (a, b) => a.join(',') === b.join(',');
+
+      // 마우스로 끌기 (컴퓨터)
+      const dt = await openApp(cdp, pageUrl, 'drag', SIZES[3]);
+      try {
+        const mouse = async (type, x, y) => { await dt.s('Input.dispatchMouseEvent', { type, x, y, button: type === 'mouseMoved' ? 'none' : 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 }); };
+        const dragRow = async (from, toRow, extra) => {
+          const rows = await rowsOf(dt);
+          const x = rows[from].hx, y0 = rows[from].hy, y1 = rows[toRow].cy + extra;
+          await mouse('mousePressed', x, y0);
+          for (let k = 1; k <= 5; k++) await mouse('mouseMoved', x, y0 + (y1 - y0) * k / 5);
+          await mouse('mouseReleased', x, y1);
+          await wait(250);
+        };
+        let rep0 = await report(dt); collect(rep0);
+        const hs = await handlesOf(dt);
+        check(hs === 'drag-1:4 sample-1:0', `[곡 순서] 내 목록의 곡마다 끌 손잡이(≡)가 있고, 남이 만든 목록에는 없음 (${hs})`, `[곡 순서] 손잡이가 이상함: ${hs}`);
+        let o = await orderOf(dt);
+        check(same(o, ['가곡', '나곡', '다곡', '라곡']), `[곡 순서] 처음 순서: ${o.join(' → ')}`, `[곡 순서] 처음 순서가 이상함: ${o.join(' → ')}`);
+
+        await dragRow(0, 2, 4); // 첫 곡을 세 번째 자리로
+        o = await orderOf(dt); let sv = await savedOf(dt);
+        check(same(o, ['나곡', '다곡', '가곡', '라곡']) && same(sv, ['나곡', '다곡', '가곡', '라곡']), `[곡 순서] 마우스로 첫 곡을 아래로 끌면 옮겨지고 저장됨: ${o.join(' → ')}`, `[곡 순서] 아래로 끌기가 이상함: 화면 ${o.join(' → ')} / 저장 ${sv.join(' → ')}`);
+        await dragRow(3, 0, -4); // 마지막 곡을 맨 위로
+        o = await orderOf(dt); sv = await savedOf(dt);
+        check(same(o, ['라곡', '나곡', '다곡', '가곡']) && same(sv, o), `[곡 순서] 마지막 곡을 맨 위로 끌어 올릴 수 있음: ${o.join(' → ')}`, `[곡 순서] 위로 끌기가 이상함: 화면 ${o.join(' → ')} / 저장 ${sv.join(' → ')}`);
+        {
+          const rows = await rowsOf(dt), x = rows[1].hx, y = rows[1].hy;
+          await mouse('mousePressed', x, y); await mouse('mouseMoved', x, y + 6); await mouse('mouseReleased', x, y + 6); await wait(250);
+        }
+        o = await orderOf(dt);
+        check(same(o, ['라곡', '나곡', '다곡', '가곡']), '[곡 순서] 조금만 움직였다 놓으면 순서가 그대로임', `[곡 순서] 조금 움직였는데 바뀜: ${o.join(' → ')}`);
+
+        // 끄는 도중 모습 (사진)
+        {
+          const rows = await rowsOf(dt), x = rows[0].hx, y = rows[0].hy;
+          await mouse('mousePressed', x, y);
+          for (let k = 1; k <= 4; k++) await mouse('mouseMoved', x, y + k * 20);
+          await wait(250);
+          const mid = await evaluate(dt, `(() => { const li = document.querySelector('.card[data-id="drag-1"] li.dragging'); return !!li && li.style.transform.startsWith('translateY'); })()`);
+          check(mid, '[곡 순서] 끄는 동안 그 곡이 손을 따라 움직이고 표시(.dragging)가 됨', '[곡 순서] 끄는 동안 움직임 표시가 없음');
+          await shoot(dt, path.join(SHOTS_DIR, `music-dragging-${SIZES[3].name}-${SIZES[3].w}x${SIZES[3].h}.png`), shots);
+          await mouse('mouseReleased', x, y + 80); await wait(250);
+        }
+
+        const beforeReload = await orderOf(dt);
+        await dt.s('Page.reload'); await wait(800);
+        o = await orderOf(dt);
+        check(same(o, beforeReload) && o.length === 4, `[곡 순서] 새로 열어도 바꾼 순서가 그대로: ${o.join(' → ')}`, `[곡 순서] 새로 열었더니 이상함: ${o.join(' → ')}`);
+
+        // 키보드
+        const key = (row, k) => evaluate(dt, `document.querySelectorAll('.card[data-id="drag-1"] li.song')[${row}].querySelector('.handle').dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`).then(() => wait(150));
+        const before = await orderOf(dt);
+        await evaluate(dt, `document.querySelectorAll('.card[data-id="drag-1"] li.song')[1].querySelector('.handle').focus()`);
+        await key(1, 'ArrowDown');
+        o = await orderOf(dt);
+        const exp = [before[0], before[2], before[1], before[3]];
+        const focusText = await evaluate(dt, `(document.activeElement.closest('li') || {}).innerText || ''`);
+        check(same(o, exp) && focusText.includes(before[1]), `[곡 순서] 키보드: ≡ 에서 아래 화살표를 누르면 한 칸 내려가고, 손잡이 위치(포커스)도 따라감: ${o.join(' → ')}`, `[곡 순서] 키보드 아래가 이상함: ${o.join(' → ')}, 포커스 "${focusText}"`);
+        await key(0, 'ArrowUp');
+        check(same(await orderOf(dt), exp), '[곡 순서] 맨 위에서 위 화살표를 눌러도 아무 일 없음 (오류 없음)', '[곡 순서] 맨 위에서 위 화살표가 순서를 바꿈');
+
+        // 듣는 중에 순서를 바꿔도 듣던 곡을 따라감
+        const cur = (await orderOf(dt))[0];
+        await act(dt, `document.querySelector('.card[data-id="drag-1"] [data-role="play"]').click()`);
+        await key(0, 'ArrowDown');
+        let pr = (await report(dt)).cards.find(cd => cd.id === 'drag-1');
+        check(pr.nowText.startsWith(`재생 중: ${cur}`) && pr.nowText.endsWith('(2/4)') && pr.nowSongs[0].includes(cur),
+          `[곡 순서+재생] 듣고 있던 곡("${cur}")을 아래로 옮겨도 그 곡이 계속 나오고 (2/4)로 따라감`, `[곡 순서+재생] 듣던 곡을 놓침: ${JSON.stringify(pr.nowText)}`);
+        await key(2, 'ArrowUp'); // 듣는 곡 뒤에 있던 곡을 듣는 곡 앞으로
+        pr = (await report(dt)).cards.find(cd => cd.id === 'drag-1');
+        check(pr.nowText.startsWith(`재생 중: ${cur}`) && pr.nowText.endsWith('(3/4)'), '[곡 순서+재생] 다른 곡이 듣는 곡 앞으로 와도 듣던 곡을 따라감 (3/4)', `[곡 순서+재생] 이상함: ${JSON.stringify(pr.nowText)}`);
+        rep0 = await report(dt); collect(rep0);
+        check(!rep0.errors.length, '[곡 순서] 끌고 옮기는 동안 자바스크립트 오류 없음', '[곡 순서] 오류: ' + rep0.errors.join(' / '));
+      } finally {
+        await dt.close();
+      }
+
+      // 손가락으로 끌기 (폰)
+      const pt = await openApp(cdp, pageUrl, 'drag', SIZES[1]);
+      try {
+        await pt.s('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+        const touch = (type, x, y) => pt.s('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+        const rows = await rowsOf(pt);
+        const x = rows[1].hx, y0 = rows[1].hy, y1 = rows[3].cy + 4;
+        await touch('touchStart', x, y0);
+        for (let k = 1; k <= 5; k++) await touch('touchMove', x, y0 + (y1 - y0) * k / 5);
+        await wait(200);
+        await shoot(pt, path.join(SHOTS_DIR, `music-dragging-touch-${SIZES[1].name}-${SIZES[1].w}x${SIZES[1].h}.png`), shots);
+        await touch('touchEnd', x, y1);
+        await wait(300);
+        const o = await orderOf(pt), sv = await savedOf(pt);
+        check(same(o, ['가곡', '다곡', '라곡', '나곡']) && same(sv, o), `[곡 순서] 폰처럼 손가락으로 끌어도 됨 (터치): ${o.join(' → ')}`, `[곡 순서] 손가락 끌기가 이상함: 화면 ${o.join(' → ')} / 저장 ${sv.join(' → ')}`);
+        const rr = await report(pt); collect(rr);
+        check(rr.scrollWidth <= rr.width, '[곡 순서] 폰 폭에서 손잡이를 넣어도 옆으로 넘치지 않음', `[곡 순서] 폰에서 넘침 ${rr.outside.join(', ')}`);
+      } finally {
+        await pt.close();
+      }
     }
 
     // 5. 저장이 막힐 때

@@ -147,6 +147,12 @@
   ol.songs li { padding: 4px 0; overflow-wrap: anywhere; }
   .songs .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .songs .row span { min-width: 0; }
+  .songs .row > span { flex: 1; }
+  ol.songs li { position: relative; transition: transform 0.12s; }
+  ol.songs li.dragging { transition: none; z-index: 2; background: #3a3454; border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
+  button.handle { flex: none; min-width: 40px; min-height: 40px; padding: 0 8px; touch-action: none; cursor: grab; user-select: none; }
+  button.handle::before { content: '≡'; font-size: 22px; line-height: 1; }
+  .hint { margin: 0; font-size: 13px; color: #b9b1d1; word-break: keep-all; }
   .artist { color: #b9b1d1; font-size: 14px; }
   button.small { min-height: 36px; padding: 4px 10px; font-size: 13px; flex: none; }
   .no-songs { margin: 0; color: #b9b1d1; font-size: 14px; }
@@ -343,6 +349,13 @@ const Player = (() => {
     supported: !!Ctor,
     state: () => (s ? { plId: s.plId, index: s.index, playing: s.playing } : null),
     stopIf(id) { if (s && s.plId === id) stop(); },
+    // 곡이 from 칸에서 to 칸으로 옮겨졌을 때, 듣던 곡을 그대로 따라가요 (다시 시작하지 않아요)
+    moved(id, from, to) {
+      if (!s || s.plId !== id) return;
+      if (s.index === from) s.index = to;
+      else if (from < s.index && to >= s.index) s.index--;
+      else if (from > s.index && to <= s.index) s.index++;
+    },
     toggle(id) {
       if (!Ctor || !songsOf(id).length) return;
       if (!ctx) ctx = new Ctor();
@@ -455,6 +468,9 @@ function renderCard(pl) {
   const songs = pl.songs.length
     ? h('ol', { class: 'songs' }, pl.songs.map((s, i) => h('li', { class: 'song' + (isNow(pl, i) ? ' now' : '') },
         h('div', { class: 'row' },
+          mine && h('button', { type: 'button', class: 'plain handle', 'aria-label': `${s.t} 순서 바꾸기 (끌거나, 위·아래 화살표 키)`,
+            onpointerdown: e => dragStart(e, pl.id, i),
+            onkeydown: e => handleKey(e, pl.id, i) }),
           h('span', null, s.t, ' ', h('span', { class: 'artist' }, '· ' + s.a)),
           mine && h('button', { type: 'button', class: 'plain small remove-song', 'aria-label': `${s.t} 빼기`, onclick: () => removeSong(pl.id, i) }, '빼기')))))
     : h('p', { class: 'no-songs' }, '아직 들어 있는 곡이 없어요.');
@@ -488,6 +504,7 @@ function renderCard(pl) {
     h('div', { class: 'rating' }, stars,
       h('span', { class: 'avg' }, avg ? `${avg.avg.toFixed(1)}점 (${avg.count}명)` : '아직 별점이 없어요')),
     songs,
+    mine && pl.songs.length > 1 ? h('p', { class: 'hint' }, '≡ 를 끌어서 곡 순서를 바꿔요. (키보드: ≡ 에서 위·아래 화살표)') : null,
     pl.songs.length ? renderPlayer(pl) : null,
     tools);
 }
@@ -557,6 +574,72 @@ function removeSong(id, index) {
   pl.songs.splice(index, 1);
   persist();
   refreshCard(id);
+}
+
+// 곡 순서 바꾸기: from 칸의 곡을 to 칸으로
+function moveSong(id, from, to, focusHandle) {
+  const pl = data.playlists.find(p => p.id === id);
+  if (!pl || !isMine(pl)) return;
+  if (from === to || to < 0 || to >= pl.songs.length) return;
+  pl.songs.splice(to, 0, pl.songs.splice(from, 1)[0]);
+  Player.moved(id, from, to);
+  persist();
+  refreshCard(id);
+  if (focusHandle) {
+    const el = document.querySelectorAll(`.card[data-id="${CSS.escape(id)}"] li.song`)[to];
+    const btn = el && el.querySelector('.handle');
+    if (btn) btn.focus();
+  }
+}
+
+// 끌어서 옮기기: 끄는 동안은 화면에서만 움직이고, 손을 떼면 한 번에 바꿔요 (마우스·손가락 모두).
+// 손잡이 밖으로 나가도 계속 따라오게 움직임은 창 전체에서 들어요.
+let dragging = null;
+function dragStart(e, id, from) {
+  if (e.button !== undefined && e.button !== 0) return;
+  const handle = e.currentTarget;
+  const rows = [...handle.closest('ol').children];
+  e.preventDefault();
+  try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+  rows[from].classList.add('dragging');
+  window.addEventListener('pointermove', dragMove);
+  window.addEventListener('pointerup', dragUp);
+  window.addEventListener('pointercancel', dragCancel);
+  dragging = { id, from, target: from, rows, rects: rows.map(li => li.getBoundingClientRect()), startY: e.clientY, pid: e.pointerId };
+}
+function dragMove(e) {
+  const d = dragging;
+  if (!d || e.pointerId !== d.pid) return;
+  const dy = e.clientY - d.startY;
+  const me = d.rects[d.from];
+  const center = me.top + me.height / 2 + dy;
+  let target = 0;
+  d.rects.forEach((r, j) => { if (j !== d.from && r.top + r.height / 2 < center) target++; });
+  d.target = target;
+  d.rows.forEach((li, j) => {
+    if (j === d.from) { li.style.transform = `translateY(${dy}px)`; return; }
+    let shift = 0;
+    if (d.from < target && j > d.from && j <= target) shift = -me.height;
+    if (d.from > target && j >= target && j < d.from) shift = me.height;
+    li.style.transform = shift ? `translateY(${shift}px)` : '';
+  });
+}
+const dragUp = e => dragEnd(e, true);
+const dragCancel = e => dragEnd(e, false);
+function dragEnd(e, commit) {
+  const d = dragging;
+  if (!d || e.pointerId !== d.pid) return;
+  dragging = null;
+  window.removeEventListener('pointermove', dragMove);
+  window.removeEventListener('pointerup', dragUp);
+  window.removeEventListener('pointercancel', dragCancel);
+  for (const li of d.rows) { li.style.transform = ''; li.classList.remove('dragging'); }
+  if (commit && d.target !== d.from) moveSong(d.id, d.from, d.target, true);
+}
+function handleKey(e, id, i) {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  moveSong(id, i, i + (e.key === 'ArrowUp' ? -1 : 1), true);
 }
 
 function rename(id, form) {
