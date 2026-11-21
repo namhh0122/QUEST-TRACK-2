@@ -8,6 +8,7 @@
 //   2. 만들기·고치기   : 만들기, 곡 넣고 빼기, 별점, 이름 바꾸기, 지우기(되묻기 포함), 빈칸 안내
 //   3. 남기기         : 새로 열어도 그대로인지
 //   4. 남이 만든 것    : 내 표시가 달라지면(다른 기기처럼) 내 것도 보기만 되는지 (내 아이디어)
+//   4-2. 재생      : 재생·멈춤·이어 듣기·다음 곡·이전 곡, 저절로 다음 곡, 목록을 바꾸면 앞 목록이 멈추는지
 //   5. 저장이 막힐 때  : 브라우저가 저장을 막아도 멈추지 않고 안내하는지
 //   6. 화면 크기      : 폰·태블릿·컴퓨터 폭에서 옆으로 잘리거나 넘치는 것이 있는지 (긴 글자 포함), 사진 찍기
 //
@@ -81,6 +82,12 @@ const REPORT_JS = `(() => {
     addForm: $$('form.add-song', c).length, renameForm: $$('form.rename', c).length,
     deleteBtn: $$('button.delete', c).length, note: $$('.no-edit-note', c).length,
     confirm: $$('.confirm-delete', c).length, badge: c.querySelector('.badge').innerText,
+    players: $$('.player', c).length,
+    playLabel: (c.querySelector('[data-role=play]') || {}).innerText || null,
+    prevOff: c.querySelector('[data-role=prev]') ? c.querySelector('[data-role=prev]').disabled : null,
+    nextOff: c.querySelector('[data-role=next]') ? c.querySelector('[data-role=next]').disabled : null,
+    nowText: c.querySelector('.now-text') ? c.querySelector('.now-text').innerText : null,
+    nowSongs: $$('li.now', c).map(li => li.innerText.replace(/s+/g, ' ').replace(/ ?빼기$/, '')),
   }));
   const notice = document.getElementById('notice');
   const slot = document.getElementById('login-slot');
@@ -207,6 +214,50 @@ async function main() {
       r = await report(tab);
       check(r.cards.find(c => c.mine).name === '아침 산책 노래', '[이름] 이름 바꾸기 됨: "아침 산책 노래"', '[이름] 이름 바꾸기가 안 됨');
 
+      // 5번 기능: 재생·멈춤·다음 곡·이전 곡
+      const click = (id, role) => act(tab, `document.querySelector('.card[data-id="${id}"] [data-role="${role}"]').click()`);
+      const pcard = async id => (await report(tab)).cards.find(c => c.id === id);
+      let p = await pcard('sample-1');
+      check(p.players === 1 && p.playLabel === '재생' && p.prevOff && p.nextOff && p.nowText.includes('첫 곡부터') && !p.nowSongs.length,
+        `[재생] 곡이 있는 목록마다 재생 줄이 있음 (처음: "${p.playLabel}", 이전·다음은 꺼짐, "${p.nowText}")`, `[재생] 처음 재생 줄이 이상함: ${JSON.stringify(p)}`);
+      r = await report(tab);
+      check(r.cards.every(c => c.players === (c.songs.length ? 1 : 0)), '[재생] 곡이 없는 목록에는 재생 줄이 없음', '[재생] 곡 없는 목록에 재생 줄이 있거나 곡 있는 목록에 없음');
+      await click('sample-1', 'play');
+      p = await pcard('sample-1');
+      check(p.playLabel === '멈춤' && p.nowText === '재생 중: 빗소리 산책 · 달빛 밴드 (1/3)' && p.nowSongs.length === 1 && p.nowSongs[0].includes('빗소리 산책') && !p.prevOff && !p.nextOff,
+        `[재생] 재생을 누르면 첫 곡이 시작: "${p.nowText}", 단추는 "멈춤", 목록에서 그 곡이 표시됨`, `[재생] 재생 시작이 이상함: ${JSON.stringify(p)}`);
+      await click('sample-1', 'next'); await click('sample-1', 'next');
+      p = await pcard('sample-1');
+      check(p.nowText.startsWith('재생 중: 창가의 오후') && p.nowText.endsWith('(3/3)') && p.nextOff,
+        `[다음 곡] 다음 곡을 두 번 누르면 마지막 곡(3/3)이고, 더 갈 곳이 없어 "다음 곡"이 꺼짐`, `[다음 곡] 이상함: ${JSON.stringify(p)}`);
+      await click('sample-1', 'prev');
+      p = await pcard('sample-1');
+      check(p.nowText.startsWith('재생 중: 우산 아래서') && p.nowText.endsWith('(2/3)') && p.nowSongs[0].includes('우산 아래서'),
+        '[이전 곡] 이전 곡을 누르면 2/3 곡으로 돌아가고 목록 표시도 따라감', `[이전 곡] 이상함: ${JSON.stringify(p)}`);
+      await click('sample-1', 'play');
+      p = await pcard('sample-1');
+      check(p.playLabel === '재생' && p.nowText.startsWith('멈춤: 우산 아래서'), `[멈춤] 멈춤을 누르면 "${p.nowText}"로 멈추고 단추가 "재생"으로 바뀜`, `[멈춤] 이상함: ${JSON.stringify(p)}`);
+      await click('sample-1', 'play');
+      p = await pcard('sample-1');
+      check(p.playLabel === '멈춤' && p.nowText.startsWith('재생 중: 우산 아래서'), '[멈춤] 다시 재생을 누르면 멈춘 곡에서 이어짐', `[멈춤] 이어 듣기가 이상함: ${JSON.stringify(p)}`);
+      await click('sample-2', 'play');
+      p = await pcard('sample-2');
+      const p1 = await pcard('sample-1');
+      check(p.nowText.startsWith('재생 중: 한 바퀴 더') && p1.playLabel === '재생' && p1.nowText.includes('첫 곡부터') && !p1.nowSongs.length,
+        '[재생] 다른 목록을 재생하면 앞 목록은 멈추고(처음 상태로), 새 목록이 첫 곡부터 나옴 (동시에 두 목록이 나오지 않음)', `[재생] 목록을 바꿨는데 이상함: ${JSON.stringify([p, p1])}`);
+      await wait(4700);
+      p = await pcard('sample-2');
+      check(p.nowText.startsWith('재생 중: 숨이 차도') && p.nowText.endsWith('(2/3)'), '[재생] 곡이 끝나면(약 4초) 저절로 다음 곡(2/3)으로 넘어감', `[재생] 저절로 안 넘어감: "${p.nowText}"`);
+      await click('sample-2', 'play'); await wait(5000); await click('sample-2', 'play');
+      p = await pcard('sample-2');
+      check(p.nowText.startsWith('재생 중: 숨이 차도'), '[멈춤] 멈춰 둔 5초 동안은 곡이 넘어가지 않음 (시간도 같이 멈춤)', `[멈춤] 멈춘 사이에 넘어가 버림: "${p.nowText}"`);
+      await click('sample-2', 'next');
+      await wait(4700);
+      p = await pcard('sample-2');
+      check(p.playLabel === '재생' && p.nowText.includes('첫 곡부터') && !p.nowSongs.length, '[재생] 마지막 곡이 끝나면 멈추고 처음 상태로 돌아감', `[재생] 마지막 곡 뒤가 이상함: ${JSON.stringify(p)}`);
+      r = await report(tab); collect(r);
+      check(!r.errors.length, '[재생] 재생하는 동안 자바스크립트 오류 없음', '[재생] 오류: ' + r.errors.join(' / '));
+
       // 3. 새로 열어도 그대로
       await tab.s('Page.reload'); await wait(800);
       r = await report(tab); collect(r);
@@ -229,6 +280,7 @@ async function main() {
       await tab.s('Page.reload'); await wait(800);
 
       // 지우기 (되묻기)
+      await act(tab, `${mineCard}.querySelector('[data-role="play"]').click()`); // 재생 중에 지우면 어떻게 되는지 보려고 먼저 재생
       await act(tab, `${mineCard}.querySelector('button.delete').click()`);
       r = await report(tab);
       check(r.cards.find(c => c.mine) && r.cards.find(c => c.mine).confirm === 1 && r.cards.length === 3, '[지우기] 지우기를 누르면 바로 지우지 않고 "정말 지울까요?"를 물음', '[지우기] 되묻지 않았거나 바로 지워짐');
@@ -240,6 +292,7 @@ async function main() {
       r = await report(tab); collect(r);
       check(r.cards.length === 2 && !r.cards.some(c => c.mine) && r.saved.playlists.length === 2, '[지우기] 지우기를 확인하면 사라지고 저장에서도 빠짐', `[지우기] 지웠는데 남음: ${r.cards.length}개`);
       check(r.cards.every(c => !c.deleteBtn), '[지우기] 예시(남의 것)는 지울 방법이 없음', '[지우기] 남의 것에 지우기가 있음');
+      check(r.cards.every(c => c.playLabel === '재생' && !c.nowSongs.length), '[재생] 재생 중이던 내 목록을 지우면 소리도 멈춤 (남은 목록은 모두 "재생" 상태)', `[재생] 지운 뒤에도 재생 상태가 남음: ${JSON.stringify(r.cards.map(c => [c.name, c.playLabel]))}`);
 
       await tab.s('Runtime.evaluate', { expression: 'localStorage.removeItem(' + JSON.stringify(SAVE_KEY) + ')' });
     } finally {
@@ -298,7 +351,7 @@ async function main() {
   const unchecked = [
     '진짜 폰에서 손가락으로 눌러 보기 (별·단추 누르기 편한지는 사진과 크기로만 봤어요)',
     '진짜 다른 사람의 기기에서 내 플레이리스트가 보이는지 (이 기기 안에서 "내 표시가 다른 기기"를 흉내 낸 것뿐이에요. 진짜는 로그인과 보관함이 있어야 해요)',
-    '음악이 실제로 나오는지 (이번에는 소리 재생을 넣지 않았어요)',
+    '스피커로 소리가 실제로 들리는지 (화면 없는 브라우저라서 단추·표시·시간 흐름만 봤어요. 귀로 들어 보는 건 직접 해 보셔야 해요)',
     '여러 탭을 동시에 열어 두고 고칠 때 서로 덮어쓰는지',
     '브라우저 저장 공간이 꽉 찼을 때 (저장 막힘 안내로만 흉내 냈어요)',
   ];

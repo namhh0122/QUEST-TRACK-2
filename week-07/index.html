@@ -136,6 +136,13 @@
   button.small { min-height: 36px; padding: 4px 10px; font-size: 13px; flex: none; }
   .no-songs { margin: 0; color: #b9b1d1; font-size: 14px; }
 
+  .player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border-radius: 12px; background: #1f1b33; }
+  .player button { flex: none; }
+  .player button:disabled { opacity: 0.4; cursor: default; }
+  .now-text { flex: 1 1 100%; min-width: 0; font-size: 14px; color: #d6cfee; overflow-wrap: anywhere; word-break: keep-all; }
+  ol.songs li.now { color: #ffc83d; font-weight: 600; }
+  ol.songs li.now .artist { color: #e6c46a; }
+
   .tools { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid #3a3454; }
   .tools form { align-items: flex-end; }
   .tools label { flex-basis: 120px; }
@@ -179,6 +186,7 @@
   <footer>
     플레이리스트는 이 기기의 브라우저에만 저장돼요. 다른 사람의 것은 볼 수만 있고 고치거나 지울 수 없어요.
     처음 들어 있는 두 개는 보여 주려고 넣은 예시이고, 곡 이름도 지어낸 거예요.
+    재생하면 진짜 곡 대신, 곡 이름으로 만든 짧은 멜로디가 나와요.
   </footer>
 </div>
 
@@ -238,7 +246,138 @@ const Store = (() => {
 /* ---------- 나머지는 화면 ---------- */
 const data = Store.load();
 const $ = id => document.getElementById(id);
-const cardState = new Map(); // 카드마다 '지울까요?' 같은 임시 상태
+const cardState = new Map();
+
+/* ---------- 재생 (소리 파일 대신, 곡 이름으로 짧은 멜로디를 만들어 들려줘요) ---------- */
+const Player = (() => {
+  const SCALE = [261.63, 293.66, 329.63, 392, 440, 523.25];
+  const NOTES = 12, NOTE_SEC = 0.35, SONG_MS = NOTES * NOTE_SEC * 1000;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  let ctx = null;
+  let s = null; // 지금 상태: { plId, index, playing, remaining, startedAt, timer, nodes }
+
+  function hash(str) {
+    let x = 2166136261;
+    for (const ch of str) { x ^= ch.charCodeAt(0); x = Math.imul(x, 16777619); }
+    return x >>> 0;
+  }
+  const songsOf = id => { const pl = data.playlists.find(p => p.id === id); return pl ? pl.songs : []; };
+
+  function stopNodes() {
+    if (!s) return;
+    clearTimeout(s.timer);
+    for (const o of s.nodes || []) { try { o.stop(); } catch (e) {} }
+    s.nodes = [];
+  }
+
+  function startSong() {
+    stopNodes();
+    const song = songsOf(s.plId)[s.index];
+    if (!song) return stop();
+    let seed = hash(song.t + '|' + song.a);
+    const t0 = ctx.currentTime + 0.05;
+    for (let i = 0; i < NOTES; i++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      const a = t0 + i * NOTE_SEC;
+      osc.type = 'triangle';
+      osc.frequency.value = SCALE[(seed >>> 16) % SCALE.length];
+      g.gain.setValueAtTime(0, a);
+      g.gain.linearRampToValueAtTime(0.18, a + 0.03);
+      g.gain.linearRampToValueAtTime(0, a + NOTE_SEC - 0.03);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(a); osc.stop(a + NOTE_SEC);
+      s.nodes.push(osc);
+    }
+    s.remaining = SONG_MS; s.startedAt = Date.now(); s.playing = true;
+    s.timer = setTimeout(ended, SONG_MS);
+    syncAll();
+  }
+
+  function ended() {
+    if (!s) return;
+    if (s.index + 1 < songsOf(s.plId).length) { s.index++; startSong(); }
+    else stop(); // 마지막 곡이 끝나면 멈춰요
+  }
+
+  function stop() {
+    stopNodes();
+    s = null;
+    syncAll();
+  }
+
+  function wake() { if (ctx.state === 'suspended') ctx.resume(); }
+
+  return {
+    supported: !!Ctor,
+    state: () => (s ? { plId: s.plId, index: s.index, playing: s.playing } : null),
+    stopIf(id) { if (s && s.plId === id) stop(); },
+    toggle(id) {
+      if (!Ctor || !songsOf(id).length) return;
+      if (!ctx) ctx = new Ctor();
+      if (s && s.plId === id) {
+        if (s.playing) { // 멈춤: 남은 시간을 기억해 두고 소리도 멈춰요
+          clearTimeout(s.timer);
+          s.remaining -= Date.now() - s.startedAt;
+          s.playing = false;
+          ctx.suspend();
+          syncAll();
+        } else { // 이어서 듣기
+          wake();
+          s.startedAt = Date.now(); s.playing = true;
+          s.timer = setTimeout(ended, Math.max(s.remaining, 0));
+          syncAll();
+        }
+      } else { // 다른 목록(또는 처음): 첫 곡부터
+        stopNodes();
+        s = { plId: id, index: 0, nodes: [] };
+        wake();
+        startSong();
+      }
+    },
+    next(id) {
+      if (!s || s.plId !== id || s.index + 1 >= songsOf(id).length) return;
+      s.index++; wake(); startSong();
+    },
+    prev(id) { // 첫 곡에서는 그 곡을 처음부터 다시
+      if (!s || s.plId !== id) return;
+      s.index = Math.max(0, s.index - 1); wake(); startSong();
+    },
+  };
+})();
+
+const isNow = (pl, i) => { const st = Player.state(); return !!st && st.plId === pl.id && st.index === i; };
+
+function renderPlayer(pl) {
+  const st = Player.state();
+  const active = !!st && st.plId === pl.id && !!pl.songs[st.index];
+  const cur = active ? pl.songs[st.index] : null;
+  const playing = active && st.playing;
+  const text = active ? `${playing ? '재생 중' : '멈춤'}: ${cur.t} · ${cur.a} (${st.index + 1}/${pl.songs.length})`
+    : Player.supported ? '재생을 누르면 첫 곡부터 들려요' : '이 브라우저에서는 소리를 낼 수 없어요';
+  return h('div', { class: 'player' },
+    h('button', { type: 'button', class: 'plain prev', 'data-role': 'prev', disabled: !active, onclick: () => Player.prev(pl.id) }, '이전 곡'),
+    h('button', { type: 'button', class: 'play', 'data-role': 'play', disabled: !Player.supported, onclick: () => Player.toggle(pl.id) }, playing ? '멈춤' : '재생'),
+    h('button', { type: 'button', class: 'plain next', 'data-role': 'next', disabled: !active || st.index + 1 >= pl.songs.length, onclick: () => Player.next(pl.id) }, '다음 곡'),
+    h('span', { class: 'now-text', role: 'status' }, text));
+}
+
+// 재생 줄과 '지금 듣는 곡' 표시만 바꿔요 (카드를 통째로 다시 그리지 않아서 적던 글자가 안 지워져요)
+function syncAll() {
+  for (const pl of data.playlists) {
+    const card = document.querySelector(`.card[data-id="${CSS.escape(pl.id)}"]`);
+    if (!card) continue;
+    const old = card.querySelector('.player');
+    if (old) {
+      const role = old.contains(document.activeElement) ? document.activeElement.dataset.role : null;
+      const fresh = renderPlayer(pl);
+      old.replaceWith(fresh);
+      const target = role && fresh.querySelector(`[data-role="${role}"]`);
+      if (target && !target.disabled) target.focus();
+    }
+    card.querySelectorAll('li.song').forEach((li, i) => li.classList.toggle('now', isNow(pl, i)));
+  }
+} // 카드마다 '지울까요?' 같은 임시 상태
 
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
@@ -283,7 +422,7 @@ function renderCard(pl) {
     }, '★')));
 
   const songs = pl.songs.length
-    ? h('ol', { class: 'songs' }, pl.songs.map((s, i) => h('li', { class: 'song' },
+    ? h('ol', { class: 'songs' }, pl.songs.map((s, i) => h('li', { class: 'song' + (isNow(pl, i) ? ' now' : '') },
         h('div', { class: 'row' },
           h('span', null, s.t, ' ', h('span', { class: 'artist' }, '· ' + s.a)),
           mine && h('button', { type: 'button', class: 'plain small remove-song', 'aria-label': `${s.t} 빼기`, onclick: () => removeSong(pl.id, i) }, '빼기')))))
@@ -318,6 +457,7 @@ function renderCard(pl) {
     h('div', { class: 'rating' }, stars,
       h('span', { class: 'avg' }, avg ? `${avg.avg.toFixed(1)}점 (${avg.count}명)` : '아직 별점이 없어요')),
     songs,
+    pl.songs.length ? renderPlayer(pl) : null,
     tools);
 }
 
@@ -366,6 +506,7 @@ function addSong(id, form) {
 function removeSong(id, index) {
   const pl = data.playlists.find(p => p.id === id);
   if (!pl || !isMine(pl)) return;
+  Player.stopIf(id);
   pl.songs.splice(index, 1);
   persist();
   refreshCard(id);
@@ -384,6 +525,7 @@ function rename(id, form) {
 function removePlaylist(id) {
   const pl = data.playlists.find(p => p.id === id);
   if (!pl || !isMine(pl)) return;
+  Player.stopIf(id);
   data.playlists = data.playlists.filter(p => p.id !== id);
   cardState.delete(id);
   persist();
