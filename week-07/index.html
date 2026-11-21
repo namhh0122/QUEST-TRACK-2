@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>내 플레이리스트</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    font-family: system-ui, -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    background: #1f1b2e;
+    color: #f3effa;
+    line-height: 1.5;
+  }
+  button, input { font: inherit; }
+  .wrap { width: 100%; max-width: 1080px; margin: 0 auto; padding: 16px; }
+
+  /* 위쪽 줄: 제목 + 로그인 자리 */
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #3a3454;
+  }
+  h1 { margin: 0; font-size: clamp(22px, 6vw, 32px); }
+  .sub { margin: 2px 0 0; font-size: 14px; color: #b9b1d1; }
+  #login-slot {
+    min-width: 110px;
+    padding: 10px 16px;
+    border: 2px dashed #6c6490;
+    border-radius: 12px;
+    color: #b9b1d1;
+    text-align: center;
+  }
+
+  #notice {
+    margin: 12px 0 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: #4a2b3a;
+    border: 1px solid #a8566f;
+    overflow-wrap: anywhere;
+  }
+  #notice[hidden] { display: none; }
+
+  h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+  .panel {
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: 16px;
+    background: #2a2540;
+  }
+  .panel h2 { margin-bottom: 10px; }
+
+  /* 입력 */
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #b9b1d1; flex: 1 1 160px; min-width: 0; }
+  input[type=text] {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid #54497a;
+    background: #181427;
+    color: #f3effa;
+  }
+  input[type=text]:focus-visible, button:focus-visible { outline: 3px solid #b79bff; outline-offset: 2px; }
+  button {
+    min-height: 44px;
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 10px;
+    background: #7c5cff;
+    color: #fff;
+    cursor: pointer;
+  }
+  button.plain { background: #3a3454; }
+  button.danger { background: #b4415f; }
+  .msg { flex-basis: 100%; margin: 0; font-size: 13px; color: #ffb4c6; }
+  .msg:empty { display: none; }
+
+  /* 목록 */
+  #list {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+    gap: 16px;
+  }
+  #empty { margin-top: 16px; padding: 24px; text-align: center; color: #b9b1d1; border: 1px dashed #54497a; border-radius: 16px; }
+  #empty[hidden] { display: none; }
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    padding: 16px;
+    border-radius: 16px;
+    background: #2a2540;
+    border: 2px solid transparent;
+  }
+  .card[data-mine="true"] { border-color: #7c5cff; }
+  .badge {
+    align-self: flex-start;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: #7c5cff;
+    font-size: 12px;
+  }
+  .badge.view { background: #3a3454; color: #d6cfee; }
+  .maker { margin: 0; font-size: 14px; color: #b9b1d1; overflow-wrap: anywhere; }
+
+  .rating { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .stars { display: flex; }
+  button.star {
+    min-width: 40px;
+    min-height: 44px;
+    padding: 0;
+    background: transparent;
+    font-size: 26px;
+    line-height: 1;
+    color: #5a5078;
+  }
+  button.star.on { color: #ffc83d; }
+  .avg { font-size: 14px; color: #d6cfee; }
+
+  ol.songs { margin: 0; padding-left: 24px; }
+  ol.songs li { padding: 4px 0; overflow-wrap: anywhere; }
+  .songs .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .songs .row span { min-width: 0; }
+  .artist { color: #b9b1d1; font-size: 14px; }
+  button.small { min-height: 36px; padding: 4px 10px; font-size: 13px; flex: none; }
+  .no-songs { margin: 0; color: #b9b1d1; font-size: 14px; }
+
+  .tools { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid #3a3454; }
+  .tools form { align-items: flex-end; }
+  .tools label { flex-basis: 120px; }
+  .view-note { margin: 0; padding-top: 10px; border-top: 1px solid #3a3454; font-size: 13px; color: #b9b1d1; }
+  .confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .confirm p { margin: 0; flex-basis: 100%; }
+
+  .view-note, footer, .sub { word-break: keep-all; }
+  footer { margin: 24px 0 8px; font-size: 13px; color: #8f87ab; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>내 플레이리스트</h1>
+      <p class="sub">플레이리스트를 만들어 두고 언제든지 즐겨요</p>
+    </div>
+    <div id="login-slot">로그인 자리</div>
+  </header>
+
+  <p id="notice" role="status" hidden></p>
+
+  <section class="panel" aria-labelledby="create-title">
+    <h2 id="create-title">새 플레이리스트 만들기</h2>
+    <form id="create-form" autocomplete="off">
+      <label>플레이리스트 이름
+        <input type="text" id="new-name" maxlength="40" placeholder="예: 비 오는 날 노래">
+      </label>
+      <label>만든 사람 (별명)
+        <input type="text" id="new-nick" maxlength="20" placeholder="실명 말고 별명">
+      </label>
+      <button type="submit">만들기</button>
+      <p class="msg" id="create-msg" role="alert"></p>
+    </form>
+  </section>
+
+  <p id="empty" hidden>아직 플레이리스트가 없어요. 위에서 하나 만들어 보세요.</p>
+  <section id="list" aria-label="플레이리스트 목록"></section>
+
+  <footer>
+    플레이리스트는 이 기기의 브라우저에만 저장돼요. 다른 사람의 것은 볼 수만 있고 고치거나 지울 수 없어요.
+    처음 들어 있는 두 개는 보여 주려고 넣은 예시이고, 곡 이름도 지어낸 거예요.
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+/* ---------- 저장하는 코드는 여기 한곳에만 있어요 ---------- */
+const Store = (() => {
+  const KEY = 'week07-music';
+  let ok = true; // 브라우저가 저장을 허락하는지
+
+  function newId() {
+    return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function seed() {
+    return {
+      myId: newId(), // 이 기기(브라우저)를 알아보는 표시. 로그인이 아니에요.
+      nick: '',
+      playlists: [
+        { id: 'sample-1', owner: 'sample-a', maker: '구름이', name: '비 오는 날 듣는 노래',
+          songs: [{ t: '빗소리 산책', a: '달빛 밴드' }, { t: '우산 아래서', a: '하늘 트리오' }, { t: '창가의 오후', a: '달빛 밴드' }],
+          ratings: { x1: 5, x2: 4, x3: 4 } },
+        { id: 'sample-2', owner: 'sample-b', maker: '바람이', name: '운동할 때 듣는 노래',
+          songs: [{ t: '한 바퀴 더', a: '번개 크루' }, { t: '숨이 차도', a: '번개 크루' }, { t: '결승선', a: '파도 합창단' }],
+          ratings: { x1: 4, x2: 5 } },
+      ],
+    };
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d && d.myId && Array.isArray(d.playlists)) return d;
+      }
+    } catch (e) {
+      ok = false;
+    }
+    return seed();
+  }
+
+  function save(data) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+      ok = true;
+    } catch (e) {
+      ok = false;
+    }
+    return ok;
+  }
+
+  return { load, save, newId, isOk: () => ok };
+})();
+
+/* ---------- 나머지는 화면 ---------- */
+const data = Store.load();
+const $ = id => document.getElementById(id);
+const cardState = new Map(); // 카드마다 '지울까요?' 같은 임시 상태
+
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, '');
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(kid));
+  }
+  return el;
+}
+
+function persist() {
+  const saved = Store.save(data);
+  const n = $('notice');
+  n.hidden = saved;
+  n.textContent = saved ? '' : '이 브라우저가 저장을 막아서, 지금 화면에서만 보이고 닫으면 사라져요.';
+}
+
+const isMine = pl => pl.owner === data.myId;
+
+function average(pl) {
+  const v = Object.values(pl.ratings || {});
+  return v.length ? { avg: v.reduce((a, b) => a + b, 0) / v.length, count: v.length } : null;
+}
+
+function renderCard(pl) {
+  const mine = isMine(pl);
+  const st = cardState.get(pl.id) || {};
+  const avg = average(pl);
+  const myRate = (pl.ratings || {})[data.myId] || 0;
+
+  const stars = h('div', { class: 'stars', role: 'group', 'aria-label': '별점 주기' },
+    [1, 2, 3, 4, 5].map(n => h('button', {
+      type: 'button', class: 'star' + (n <= myRate ? ' on' : ''), 'data-n': n,
+      'aria-label': `별 ${n}개 주기`, 'aria-pressed': n <= myRate ? 'true' : 'false',
+      onclick: () => rate(pl.id, n),
+    }, '★')));
+
+  const songs = pl.songs.length
+    ? h('ol', { class: 'songs' }, pl.songs.map((s, i) => h('li', { class: 'song' },
+        h('div', { class: 'row' },
+          h('span', null, s.t, ' ', h('span', { class: 'artist' }, '· ' + s.a)),
+          mine && h('button', { type: 'button', class: 'plain small remove-song', 'aria-label': `${s.t} 빼기`, onclick: () => removeSong(pl.id, i) }, '빼기')))))
+    : h('p', { class: 'no-songs' }, '아직 들어 있는 곡이 없어요.');
+
+  let tools;
+  if (!mine) {
+    tools = h('p', { class: 'view-note no-edit-note' }, '다른 사람이 만든 거라 볼 수만 있어요. 고치거나 지울 수 없어요.');
+  } else {
+    tools = h('div', { class: 'tools' },
+      h('form', { class: 'add-song', autocomplete: 'off', onsubmit: e => { e.preventDefault(); addSong(pl.id, e.target); } },
+        h('label', null, '곡 이름', h('input', { type: 'text', name: 'title', maxlength: 60 })),
+        h('label', null, '가수', h('input', { type: 'text', name: 'artist', maxlength: 40 })),
+        h('button', { type: 'submit' }, '곡 넣기'),
+        h('p', { class: 'msg', role: 'alert' }, st.songMsg || '')),
+      h('form', { class: 'rename', autocomplete: 'off', onsubmit: e => { e.preventDefault(); rename(pl.id, e.target); } },
+        h('label', null, '이름 바꾸기', h('input', { type: 'text', name: 'name', maxlength: 40, value: pl.name })),
+        h('button', { type: 'submit', class: 'plain' }, '바꾸기'),
+        h('p', { class: 'msg', role: 'alert' }, st.nameMsg || '')),
+      st.confirming
+        ? h('div', { class: 'confirm' },
+            h('p', null, `"${pl.name}" 을(를) 정말 지울까요? 되돌릴 수 없어요.`),
+            h('button', { type: 'button', class: 'danger confirm-delete', onclick: () => removePlaylist(pl.id) }, '지우기'),
+            h('button', { type: 'button', class: 'plain cancel-delete', onclick: () => setState(pl.id, { confirming: false }) }, '취소'))
+        : h('button', { type: 'button', class: 'danger delete', onclick: () => setState(pl.id, { confirming: true }) }, '이 플레이리스트 지우기'));
+  }
+
+  return h('article', { class: 'card', 'data-id': pl.id, 'data-mine': mine ? 'true' : 'false' },
+    h('span', { class: 'badge' + (mine ? '' : ' view') }, mine ? '내가 만든 것' : '보기만 해요'),
+    h('h2', null, pl.name),
+    h('p', { class: 'maker' }, '만든 사람: ', h('strong', null, pl.maker)),
+    h('div', { class: 'rating' }, stars,
+      h('span', { class: 'avg' }, avg ? `${avg.avg.toFixed(1)}점 (${avg.count}명)` : '아직 별점이 없어요')),
+    songs,
+    tools);
+}
+
+function renderAll() {
+  const list = $('list');
+  list.replaceChildren(...data.playlists.map(renderCard));
+  $('empty').hidden = data.playlists.length > 0;
+}
+
+function refreshCard(id) {
+  const pl = data.playlists.find(p => p.id === id);
+  const old = $('list').querySelector(`[data-id="${CSS.escape(id)}"]`);
+  if (pl && old) old.replaceWith(renderCard(pl));
+}
+
+function setState(id, patch) {
+  cardState.set(id, Object.assign(cardState.get(id) || {}, patch));
+  refreshCard(id);
+}
+
+/* ---------- 동작 ---------- */
+function clean(s) { return String(s).trim().replace(/\s+/g, ' '); }
+
+function create(name, nick) {
+  name = clean(name); nick = clean(nick);
+  if (!name) return '플레이리스트 이름을 적어 주세요.';
+  if (!nick) return '만든 사람 별명을 적어 주세요.';
+  data.nick = nick;
+  data.playlists.unshift({ id: Store.newId(), owner: data.myId, maker: nick, name, songs: [], ratings: {} });
+  persist();
+  renderAll();
+  return '';
+}
+
+function addSong(id, form) {
+  const pl = data.playlists.find(p => p.id === id);
+  if (!pl || !isMine(pl)) return;
+  const t = clean(form.title.value), a = clean(form.artist.value);
+  if (!t || !a) return setState(id, { songMsg: '곡 이름과 가수를 모두 적어 주세요.' });
+  if (pl.songs.length >= 50) return setState(id, { songMsg: '곡은 50개까지 넣을 수 있어요.' });
+  pl.songs.push({ t, a });
+  persist();
+  setState(id, { songMsg: '' });
+}
+
+function removeSong(id, index) {
+  const pl = data.playlists.find(p => p.id === id);
+  if (!pl || !isMine(pl)) return;
+  pl.songs.splice(index, 1);
+  persist();
+  refreshCard(id);
+}
+
+function rename(id, form) {
+  const pl = data.playlists.find(p => p.id === id);
+  if (!pl || !isMine(pl)) return;
+  const name = clean(form.name.value);
+  if (!name) return setState(id, { nameMsg: '이름을 비워 둘 수 없어요.' });
+  pl.name = name;
+  persist();
+  setState(id, { nameMsg: '' });
+}
+
+function removePlaylist(id) {
+  const pl = data.playlists.find(p => p.id === id);
+  if (!pl || !isMine(pl)) return;
+  data.playlists = data.playlists.filter(p => p.id !== id);
+  cardState.delete(id);
+  persist();
+  renderAll();
+}
+
+// 별점은 누구나 줄 수 있어요 (내 별점은 내 표시로 하나만 남아요). 같은 별을 다시 누르면 취소.
+function rate(id, n) {
+  const pl = data.playlists.find(p => p.id === id);
+  if (!pl) return;
+  pl.ratings = pl.ratings || {};
+  if (pl.ratings[data.myId] === n) delete pl.ratings[data.myId];
+  else pl.ratings[data.myId] = n;
+  persist();
+  refreshCard(id);
+}
+
+$('create-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const msg = create($('new-name').value, $('new-nick').value);
+  $('create-msg').textContent = msg;
+  if (!msg) $('new-name').value = '';
+});
+
+$('new-nick').value = data.nick || '';
+renderAll();
+// 저장이 막혀 있는지 처음부터 알려 줘요 (읽을 때 막혔다면 여기서 보여요)
+if (!Store.isOk()) persist();
+</script>
+</body>
+</html>
